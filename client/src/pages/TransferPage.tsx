@@ -12,37 +12,37 @@ export function TransferPage() {
   const { step, pendingTransfer, completedTransaction, error, initiate, confirm, cancel, reset } =
     useTransfer()
   const [pendingRailType, setPendingRailType] = useState<MoovRailType | undefined>()
+  const [pendingFromName, setPendingFromName] = useState<string | undefined>()
+  const [pendingToName, setPendingToName] = useState<string | undefined>()
 
   async function handleFormSubmit(data: {
     fromAccountId: string
     toAccountId: string
     amountCents: number
     memo?: string
-    provider: 'stripe' | 'moov'
+    provider: 'internal' | 'stripe' | 'moov'
     moovRailType?: MoovRailType
+    fromAccountName: string
+    toAccountName: string
   }) {
     setPendingRailType(data.moovRailType)
-    await initiate(data as TransferPayload)
+    setPendingFromName(data.fromAccountName)
+    setPendingToName(data.toAccountName)
+    const { fromAccountName: _f, toAccountName: _t, ...payload } = data
+    await initiate(payload as TransferPayload)
   }
 
   async function handleConfirm() {
     await confirm()
-    // Refresh balances after successful transfer
     refetch()
   }
 
   function handleReset() {
     setPendingRailType(undefined)
+    setPendingFromName(undefined)
+    setPendingToName(undefined)
     reset()
   }
-
-  const fromAccountName = pendingTransfer
-    ? accounts.find((a) => a.id === pendingTransfer.transaction.fromAccountId)?.name
-    : undefined
-
-  const toAccountName = pendingTransfer
-    ? accounts.find((a) => a.id === pendingTransfer.transaction.toAccountId)?.name
-    : undefined
 
   return (
     <div className="mx-auto max-w-lg space-y-6">
@@ -55,10 +55,8 @@ export function TransferPage() {
               <div key={i} className="h-10 animate-pulse rounded-lg bg-gray-200" />
             ))}
           </div>
-        ) : accounts.length < 2 ? (
-          <p className="text-sm text-gray-500">
-            You need at least two accounts to make a transfer.
-          </p>
+        ) : accounts.length === 0 ? (
+          <p className="text-sm text-gray-500">You need at least one account to make a transfer.</p>
         ) : (
           <TransferForm
             accounts={accounts}
@@ -73,8 +71,8 @@ export function TransferPage() {
         pendingTransfer={pendingTransfer}
         completedTransaction={completedTransaction}
         error={error}
-        fromAccountName={fromAccountName}
-        toAccountName={toAccountName}
+        fromAccountName={pendingFromName}
+        toAccountName={pendingToName}
         moovRailType={pendingRailType}
         onConfirm={handleConfirm}
         onCancel={cancel}

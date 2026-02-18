@@ -6,7 +6,7 @@ export interface TransferPayload {
   toAccountId: string
   amountCents: number
   memo?: string
-  provider?: 'stripe' | 'moov'
+  provider?: 'internal' | 'stripe' | 'moov'
   moovRailType?: MoovRailType
 }
 

@@ -11,7 +11,7 @@ export function DashboardPage() {
   const { transactions, loading: txLoading } = useTransactions({ limit: 10 })
 
   const totalBalance = accounts.reduce((sum, a) => sum + a.balanceCents, 0)
-  const firstName = email?.split('@')[0] ?? 'there'
+  const firstName = (email?.split('@')[0] ?? 'there').replace(/^./, (c) => c.toUpperCase())
 
   return (
     <div className="space-y-6">

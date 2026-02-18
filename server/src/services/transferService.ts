@@ -7,7 +7,7 @@ import {
 } from './moovService'
 import { NotFoundError, ForbiddenError, AppError, ValidationError } from '../utils/errors'
 
-type Provider = 'stripe' | 'moov'
+type Provider = 'internal' | 'stripe' | 'moov'
 type MoovRailType = 'ach-standard' | 'ach-same-day' | 'rtp' | 'fund'
 
 export async function initiateTransfer(
@@ -32,6 +32,28 @@ export async function initiateTransfer(
   if (amountCents <= 0) throw new ValidationError('Amount must be positive')
   if (fromAccount.balanceCents < amountCents) {
     throw new AppError('Insufficient funds', 400, 'INSUFFICIENT_FUNDS')
+  }
+
+  if (provider === 'internal') {
+    if (toAccount.userId !== userId) {
+      throw new ValidationError('Internal transfers must be between your own accounts')
+    }
+
+    const [debitTx] = await prisma.$transaction([
+      prisma.transaction.create({
+        data: {
+          fromAccountId,
+          toAccountId,
+          amountCents,
+          type: 'DEBIT',
+          status: 'PENDING',
+          memo,
+          provider: 'internal',
+        },
+      }),
+    ])
+
+    return { transaction: debitTx, paymentIntentId: null, clientSecret: null }
   }
 
   if (provider === 'moov') {
@@ -108,6 +130,22 @@ export async function confirmTransfer(transactionId: string, userId: string) {
     throw new AppError(`Transaction is already ${tx.status.toLowerCase()}`, 400, 'INVALID_STATE')
   }
   if (!tx.fromAccountId || !tx.toAccountId) throw new AppError('Invalid transaction accounts', 500)
+
+  // Internal path — direct balance transfer, no external payment gateway
+  if (tx.provider === 'internal') {
+    const [updatedTx] = await prisma.$transaction([
+      prisma.transaction.update({ where: { id: transactionId }, data: { status: 'COMPLETED' } }),
+      prisma.account.update({
+        where: { id: tx.fromAccountId },
+        data: { balanceCents: { decrement: tx.amountCents } },
+      }),
+      prisma.account.update({
+        where: { id: tx.toAccountId },
+        data: { balanceCents: { increment: tx.amountCents } },
+      }),
+    ])
+    return updatedTx
+  }
 
   // Moov path
   if (tx.moovTransferId) {
@@ -186,7 +224,7 @@ export async function cancelTransfer(transactionId: string, userId: string) {
     } catch {
       // Already past cancellable state — continue
     }
-  } else if (tx.stripePaymentIntentId) {
+  } else if (tx.provider !== 'internal' && tx.stripePaymentIntentId) {
     try {
       await cancelPaymentIntent(tx.stripePaymentIntentId)
     } catch {

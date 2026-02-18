@@ -10,6 +10,7 @@ export interface Account {
   name: string
   balanceCents: number
   currency: string
+  moovPaymentMethodId: string | null
   createdAt: string
   updatedAt: string
 }
@@ -30,7 +31,7 @@ export interface Transaction {
   memo: string | null
   stripePaymentIntentId: string | null
   moovTransferId: string | null
-  provider: 'stripe' | 'moov' | null
+  provider: 'internal' | 'stripe' | 'moov' | null
   createdAt: string
   updatedAt: string
   fromAccount?: TransactionAccount | null
@@ -61,12 +62,12 @@ export interface TransferFormData {
   toAccountId: string
   amountCents: number
   memo?: string
-  provider?: 'stripe' | 'moov'
+  provider?: 'internal' | 'stripe' | 'moov'
   moovRailType?: MoovRailType
 }
 
 export interface TransferResult {
   transaction: Transaction
-  paymentIntentId: string
+  paymentIntentId: string | null
   clientSecret: string | null
 }

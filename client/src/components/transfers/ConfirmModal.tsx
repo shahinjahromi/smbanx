@@ -38,6 +38,7 @@ export function ConfirmModal({
   const isOpen = step !== 'idle'
 
   function viaLabel(tx: Transaction): string {
+    if (tx.provider === 'internal') return 'Internal transfer'
     if (tx.provider === 'moov' && moovRailType) {
       return `Moov — ${moovRailLabels[moovRailType]}`
     }
