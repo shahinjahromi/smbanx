@@ -1,10 +1,19 @@
 import { Router, Request, Response, NextFunction } from 'express'
 import { authenticate } from '../middleware/authenticate'
-import { getAccountsByUser, getAccountById } from '../services/accountService'
+import { getAccountsByUser, getAccountById, getMoovDestinations } from '../services/accountService'
 
 const router = Router()
 
 router.use(authenticate)
+
+router.get('/moov-destinations', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const accounts = await getMoovDestinations(req.user!.userId)
+    res.json({ accounts })
+  } catch (err) {
+    next(err)
+  }
+})
 
 router.get('/', async (req: Request, res: Response, next: NextFunction) => {
   try {

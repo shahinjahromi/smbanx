@@ -10,3 +10,8 @@ export async function fetchAccount(id: string): Promise<Account> {
   const { data } = await api.get<{ account: Account }>(`/accounts/${id}`)
   return data.account
 }
+
+export async function fetchMoovDestinations(): Promise<Account[]> {
+  const { data } = await api.get<{ accounts: Account[] }>('/accounts/moov-destinations')
+  return data.accounts
+}

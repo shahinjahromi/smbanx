@@ -1,7 +1,8 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Input, Select } from '../ui/Input'
 import { Button } from '../ui/Button'
 import { parseDollarsToCents } from '../../utils/currency'
+import { fetchMoovDestinations } from '../../api/accounts'
 import type { Account, MoovRailType } from '../../types'
 
 interface TransferFormProps {
@@ -32,6 +33,13 @@ export function TransferForm({ accounts, onSubmit, loading }: TransferFormProps)
   const [provider, setProvider] = useState<'stripe' | 'moov'>('stripe')
   const [moovRailType, setMoovRailType] = useState<MoovRailType>('ach-standard')
   const [errors, setErrors] = useState<Record<string, string>>({})
+  const [moovDestinations, setMoovDestinations] = useState<Account[]>([])
+
+  useEffect(() => {
+    if (provider === 'moov') {
+      fetchMoovDestinations().then(setMoovDestinations).catch(() => setMoovDestinations([]))
+    }
+  }, [provider])
 
   function validate() {
     const errs: Record<string, string> = {}
@@ -90,11 +98,23 @@ export function TransferForm({ accounts, onSubmit, loading }: TransferFormProps)
         error={errors.to}
       >
         <option value="">Select destination account...</option>
-        {accounts.map((a) => (
-          <option key={a.id} value={a.id} disabled={a.id === fromAccountId}>
-            {a.name} ({a.accountNumber})
-          </option>
-        ))}
+        {provider === 'moov' ? (
+          moovDestinations.length === 0 ? (
+            <option disabled value="">No Moov-enabled accounts available</option>
+          ) : (
+            moovDestinations.map((a) => (
+              <option key={a.id} value={a.id}>
+                {a.name} ({a.accountNumber})
+              </option>
+            ))
+          )
+        ) : (
+          accounts.map((a) => (
+            <option key={a.id} value={a.id} disabled={a.id === fromAccountId}>
+              {a.name} ({a.accountNumber})
+            </option>
+          ))
+        )}
       </Select>
 
       <Input
@@ -131,7 +151,7 @@ export function TransferForm({ accounts, onSubmit, loading }: TransferFormProps)
               name="provider"
               value="stripe"
               checked={provider === 'stripe'}
-              onChange={() => setProvider('stripe')}
+              onChange={() => { setProvider('stripe'); setToAccountId('') }}
               className="h-4 w-4 text-blue-600 border-gray-300"
             />
             <span className="text-sm text-gray-700">Stripe — Card (test mode)</span>
@@ -142,7 +162,7 @@ export function TransferForm({ accounts, onSubmit, loading }: TransferFormProps)
               name="provider"
               value="moov"
               checked={provider === 'moov'}
-              onChange={() => setProvider('moov')}
+              onChange={() => { setProvider('moov'); setToAccountId('') }}
               className="h-4 w-4 text-blue-600 border-gray-300"
             />
             <span className="text-sm text-gray-700">Moov — Bank Transfer</span>

@@ -8,6 +8,14 @@ export async function getAccountsByUser(userId: string) {
   })
 }
 
+export async function getMoovDestinations(excludeUserId: string) {
+  return prisma.account.findMany({
+    where: { moovPaymentMethodId: { not: null }, userId: { not: excludeUserId } },
+    select: { id: true, name: true, accountNumber: true, accountType: true, moovPaymentMethodId: true },
+    orderBy: { createdAt: 'asc' },
+  })
+}
+
 export async function getAccountById(id: string, userId: string) {
   const account = await prisma.account.findUnique({ where: { id } })
   if (!account) throw new NotFoundError('Account')
