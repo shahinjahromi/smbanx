@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useCards } from '../hooks/useCards'
-import { createCardTransaction, postCardTransaction, fetchPendingAuths } from '../api/simulator'
-import { cancelTransfer } from '../api/transfers'
+import { createCardTransaction, postCardTransaction, voidCardTransaction, fetchPendingAuths } from '../api/simulator'
 import { parseDollarsToCents, formatCents } from '../utils/currency'
 import { formatDateTime } from '../utils/date'
 import type { PendingAuth } from '../api/simulator'
@@ -109,7 +108,7 @@ export function CardSimulatorPage() {
   async function handleVoid(txId: string) {
     setVoidingId(txId)
     try {
-      await cancelTransfer(txId)
+      await voidCardTransaction(txId)
       await loadPendingAuths()
     } catch (err: unknown) {
       alert(err instanceof Error ? err.message : 'Failed to void authorization')

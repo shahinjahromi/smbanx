@@ -2,7 +2,7 @@ import { Router, Request, Response, NextFunction } from 'express'
 import { z } from 'zod'
 import { authenticate } from '../middleware/authenticate'
 import { validateBody } from '../middleware/validateBody'
-import { createCardTransaction, postCardTransaction, getPendingAuths } from '../services/simulatorService'
+import { createCardTransaction, postCardTransaction, cancelCardTransaction, getPendingAuths } from '../services/simulatorService'
 
 const router = Router()
 
@@ -33,6 +33,15 @@ router.post(
 router.post('/card-transaction/:id/post', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const tx = await postCardTransaction(req.params.id, req.user!.userId)
+    res.json({ transaction: tx })
+  } catch (err) {
+    next(err)
+  }
+})
+
+router.post('/card-transaction/:id/void', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const tx = await cancelCardTransaction(req.params.id, req.user!.userId)
     res.json({ transaction: tx })
   } catch (err) {
     next(err)

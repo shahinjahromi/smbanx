@@ -3,6 +3,53 @@ import bcrypt from 'bcryptjs'
 
 const prisma = new PrismaClient()
 
+// ─── Marqeta helpers (inline to avoid circular env dependency in seed) ────────
+const MQ_BASE = process.env.MARQETA_BASE_URL ?? 'https://sandbox-api.marqeta.com/v3'
+const MQ_AUTH = 'Basic ' + Buffer.from(
+  `${process.env.MARQETA_APP_TOKEN}:${process.env.MARQETA_ADMIN_TOKEN}`
+).toString('base64')
+
+async function mqPost(path: string, body: object) {
+  const res = await fetch(`${MQ_BASE}${path}`, {
+    method: 'POST',
+    headers: { Authorization: MQ_AUTH, 'Content-Type': 'application/json', Accept: 'application/json' },
+    body: JSON.stringify(body),
+  })
+  const json = await res.json() as Record<string, unknown>
+  if (!res.ok && res.status !== 409) throw new Error(`Marqeta ${path} failed: ${JSON.stringify(json)}`)
+  return json
+}
+
+async function mqGet(path: string) {
+  const res = await fetch(`${MQ_BASE}${path}`, {
+    headers: { Authorization: MQ_AUTH, Accept: 'application/json' },
+  })
+  const json = await res.json() as Record<string, unknown>
+  if (!res.ok) throw new Error(`Marqeta GET ${path} failed: ${JSON.stringify(json)}`)
+  return json
+}
+
+async function ensureMarqetaUser(token: string, firstName: string, lastName: string, email: string) {
+  const res = await mqPost('/users', { token, first_name: firstName, last_name: lastName, email, active: true })
+  if ((res as { token?: string }).token) return res
+  // 409 — user already exists, fetch it
+  return mqGet(`/users/${token}`)
+}
+
+async function createMarqetaCard(userToken: string) {
+  const cardProductToken = process.env.MARQETA_CARD_PRODUCT_TOKEN
+  return mqPost('/cards', { user_token: userToken, card_product_token: cardProductToken })
+}
+
+async function fundGPA(userToken: string, amountCents: number) {
+  return mqPost('/gpaorders', {
+    user_token: userToken,
+    amount: amountCents / 100,
+    currency_code: 'USD',
+    funding_source_token: process.env.MARQETA_FUNDING_SOURCE_TOKEN ?? 'sandbox_program_funding',
+  })
+}
+
 function randomInt(min: number, max: number) {
   return Math.floor(Math.random() * (max - min + 1)) + min
 }
@@ -104,11 +151,57 @@ async function main() {
     },
   })
 
-  // Create debit cards for checking accounts
-  await prisma.card.create({ data: { accountId: aliceChecking.id, last4: '4242', expiryMonth: 12, expiryYear: 29 } })
-  await prisma.card.create({ data: { accountId: bobChecking.id, last4: '1234', expiryMonth: 9, expiryYear: 28 } })
-
   console.log('Created users and accounts...')
+
+  // ─── Marqeta integration ─────────────────────────────────────────────────
+  console.log('Provisioning Marqeta users, funding GPAs, and issuing cards...')
+
+  // Alice
+  const mqAlice = await ensureMarqetaUser('banking-mvp-alice', 'Alice', 'Johnson', 'alice@acmecorp.com')
+  await fundGPA('banking-mvp-alice', aliceChecking.balanceCents)
+  const mqAliceCard = await createMarqetaCard('banking-mvp-alice') as { token: string; last_four: string; expiration: string }
+
+  // Bob
+  const mqBob = await ensureMarqetaUser('banking-mvp-bob', 'Bob', 'Smith', 'bob@techstart.io')
+  await fundGPA('banking-mvp-bob', bobChecking.balanceCents)
+  const mqBobCard = await createMarqetaCard('banking-mvp-bob') as { token: string; last_four: string; expiration: string }
+
+  // Store Marqeta tokens in DB
+  await prisma.user.update({ where: { id: alice.id }, data: { marqetaUserToken: mqAlice.token as string } })
+  await prisma.user.update({ where: { id: bob.id }, data: { marqetaUserToken: mqBob.token as string } })
+
+  // Parse expiry MMYY → month + year (20YY)
+  function parseExpiry(mmyy: string) {
+    const month = parseInt(mmyy.slice(0, 2), 10)
+    const year = 2000 + parseInt(mmyy.slice(2, 4), 10)
+    return { month, year }
+  }
+
+  const aliceExpiry = parseExpiry(mqAliceCard.expiration)
+  const bobExpiry = parseExpiry(mqBobCard.expiration)
+
+  // Create local Card records with Marqeta tokens
+  await prisma.card.create({
+    data: {
+      accountId: aliceChecking.id,
+      last4: mqAliceCard.last_four,
+      expiryMonth: aliceExpiry.month,
+      expiryYear: aliceExpiry.year,
+      marqetaCardToken: mqAliceCard.token,
+    },
+  })
+  await prisma.card.create({
+    data: {
+      accountId: bobChecking.id,
+      last4: mqBobCard.last_four,
+      expiryMonth: bobExpiry.month,
+      expiryYear: bobExpiry.year,
+      marqetaCardToken: mqBobCard.token,
+    },
+  })
+
+  console.log(`Marqeta Alice: user=${mqAlice.token} card=••••${mqAliceCard.last_four}`)
+  console.log(`Marqeta Bob:   user=${mqBob.token} card=••••${mqBobCard.last_four}`)
 
   // Generate 90 days of transaction history
   const memos = [

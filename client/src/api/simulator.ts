@@ -24,6 +24,11 @@ export async function postCardTransaction(txId: string): Promise<Transaction> {
   return data.transaction
 }
 
+export async function voidCardTransaction(txId: string): Promise<Transaction> {
+  const { data } = await api.post<{ transaction: Transaction }>(`/simulator/card-transaction/${txId}/void`)
+  return data.transaction
+}
+
 export async function fetchPendingAuths(): Promise<PendingAuth[]> {
   const { data } = await api.get<PendingAuth[]>('/simulator/pending-auths')
   return data

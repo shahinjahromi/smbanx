@@ -38,6 +38,8 @@ model User {
   lastName     String
   businessName String?
 
+  marqetaUserToken String?  @unique
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -74,9 +76,10 @@ model Transaction {
   memo                  String?
   stripePaymentIntentId String?
   moovTransferId        String?     // Moov transfer ID (populated when provider = 'moov')
-  provider              String?     // 'stripe' | 'moov' | 'card' — defaults to 'stripe'
-  cardId                String?
-  merchantName          String?
+  provider                String?     // 'stripe' | 'moov' | 'card' — defaults to 'stripe'
+  cardId                  String?
+  merchantName            String?
+  marqetaTransactionToken String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -92,9 +95,10 @@ model Card {
   last4       String
   expiryMonth Int
   expiryYear  Int
-  status      CardStatus @default(ACTIVE)
-  createdAt   DateTime   @default(now())
-  updatedAt   DateTime   @updatedAt
+  status           CardStatus @default(ACTIVE)
+  marqetaCardToken String?    @unique
+  createdAt        DateTime   @default(now())
+  updatedAt        DateTime   @updatedAt
 
   account      Account       @relation(fields: [accountId], references: [id])
   transactions Transaction[]
