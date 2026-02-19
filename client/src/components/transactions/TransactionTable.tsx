@@ -44,55 +44,68 @@ export function TransactionTable({
           <thead>
             <tr className="border-b border-gray-100 text-left text-xs font-medium uppercase tracking-wide text-gray-500">
               <th className="pb-3 pr-4">Date</th>
-              <th className="pb-3 pr-4">Memo</th>
-              <th className="pb-3 pr-4">From</th>
-              <th className="pb-3 pr-4">To</th>
+              <th className="pb-3 pr-4">Description</th>
+              <th className="pb-3 pr-4">Account</th>
               <th className="pb-3 pr-4">Type</th>
               <th className="pb-3 pr-4">Status</th>
               <th className="pb-3 text-right">Amount</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-50">
-            {transactions.map((tx) => (
-              <tr key={tx.id} className="hover:bg-gray-50">
-                <td className="py-3 pr-4 text-gray-500 whitespace-nowrap">
-                  {formatDateTime(tx.createdAt)}
-                </td>
-                <td className="py-3 pr-4 max-w-xs">
-                  {tx.provider === 'card' && tx.merchantName ? (
-                    <div className="flex items-center gap-1.5">
-                      <svg className="h-3.5 w-3.5 flex-shrink-0 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
-                      </svg>
-                      <p className="truncate text-gray-900">{tx.merchantName}</p>
-                    </div>
-                  ) : (
-                    <p className="truncate text-gray-900">{tx.memo ?? '—'}</p>
-                  )}
-                </td>
-                <td className="py-3 pr-4 text-gray-500">
-                  {tx.fromAccount?.name ?? '—'}
-                </td>
-                <td className="py-3 pr-4 text-gray-500">
-                  {tx.toAccount?.name ?? '—'}
-                </td>
-                <td className="py-3 pr-4">
-                  <TypeBadge type={tx.type} />
-                </td>
-                <td className="py-3 pr-4">
-                  <StatusBadge status={tx.status} />
-                </td>
-                <td
-                  className={cn(
-                    'py-3 text-right font-semibold tabular-nums',
-                    tx.type === 'CREDIT' ? 'text-green-600' : 'text-gray-900',
-                  )}
-                >
-                  {tx.type === 'CREDIT' ? '+' : '-'}
-                  {formatCents(tx.amountCents)}
-                </td>
-              </tr>
-            ))}
+            {transactions.map((tx) => {
+              const isCard = tx.provider === 'card'
+              const counterparty = tx.type === 'DEBIT' ? tx.toAccount : tx.fromAccount
+              return (
+                <tr key={tx.id} className="hover:bg-gray-50">
+                  <td className="py-3 pr-4 text-gray-500 whitespace-nowrap">
+                    {formatDateTime(tx.createdAt)}
+                  </td>
+                  {/* Description */}
+                  <td className="py-3 pr-4 max-w-xs">
+                    {isCard ? (
+                      <div className="flex items-center gap-1.5">
+                        <svg className="h-3.5 w-3.5 flex-shrink-0 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
+                        </svg>
+                        <p className="truncate text-gray-900">{tx.merchantName ?? '—'}</p>
+                      </div>
+                    ) : (
+                      <p className="truncate text-gray-900">{tx.memo ?? '—'}</p>
+                    )}
+                  </td>
+                  {/* Account */}
+                  <td className="py-3 pr-4 text-gray-500">
+                    {isCard ? (
+                      <span className="inline-flex items-center gap-1.5 rounded-md bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-700">
+                        Visa ••••{tx.card?.last4 ?? '????'}
+                      </span>
+                    ) : counterparty ? (
+                      <span className="text-sm">
+                        {tx.type === 'DEBIT' ? '→ ' : '← '}
+                        {counterparty.name}
+                      </span>
+                    ) : (
+                      <span className="text-sm">{tx.toAccount?.name ?? tx.fromAccount?.name ?? '—'}</span>
+                    )}
+                  </td>
+                  <td className="py-3 pr-4">
+                    <TypeBadge type={tx.type} />
+                  </td>
+                  <td className="py-3 pr-4">
+                    <StatusBadge status={tx.status} />
+                  </td>
+                  <td
+                    className={cn(
+                      'py-3 text-right font-semibold tabular-nums',
+                      tx.type === 'CREDIT' ? 'text-green-600' : 'text-gray-900',
+                    )}
+                  >
+                    {tx.type === 'CREDIT' ? '+' : '-'}
+                    {formatCents(tx.amountCents)}
+                  </td>
+                </tr>
+              )
+            })}
           </tbody>
         </table>
       </div>

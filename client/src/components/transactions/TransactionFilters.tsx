@@ -22,7 +22,7 @@ export function TransactionFilters({ filters, onUpdate }: TransactionFiltersProp
       <form onSubmit={handleSearchSubmit} className="flex items-end gap-2">
         <Input
           label="Search"
-          placeholder="Search memo..."
+          placeholder="Search memo, merchant..."
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           className="w-48"

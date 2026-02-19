@@ -35,10 +35,23 @@ export function RecentTransactions({ transactions, loading }: RecentTransactions
           {transactions.map((tx) => (
             <li key={tx.id} className="flex items-center justify-between px-6 py-3 hover:bg-gray-50">
               <div className="flex-1 min-w-0">
-                <p className="truncate text-sm font-medium text-gray-900">
-                  {tx.memo ?? (tx.type === 'CREDIT' ? 'Incoming Transfer' : 'Outgoing Transfer')}
-                </p>
-                <p className="text-xs text-gray-400">{formatDate(tx.createdAt)}</p>
+                {tx.provider === 'card' ? (
+                  <>
+                    <p className="truncate text-sm font-medium text-gray-900">
+                      {tx.merchantName ?? `Visa ••••${tx.card?.last4 ?? '????'}`}
+                    </p>
+                    <p className="text-xs text-gray-400">
+                      Visa ••••{tx.card?.last4 ?? '????'} · {formatDate(tx.createdAt)}
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <p className="truncate text-sm font-medium text-gray-900">
+                      {tx.memo ?? (tx.type === 'CREDIT' ? 'Incoming Transfer' : 'Outgoing Transfer')}
+                    </p>
+                    <p className="text-xs text-gray-400">{formatDate(tx.createdAt)}</p>
+                  </>
+                )}
               </div>
               <div className="ml-4 flex items-center gap-3">
                 <StatusBadge status={tx.status} />

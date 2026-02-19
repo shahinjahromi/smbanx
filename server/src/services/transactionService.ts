@@ -51,8 +51,14 @@ export async function getTransactions(userId: string, query: TransactionQuery) {
   }
 
   if (query.search) {
-    // Search in memo field
-    where.memo = { contains: query.search, mode: 'insensitive' }
+    where.AND = [
+      {
+        OR: [
+          { memo: { contains: query.search, mode: 'insensitive' } },
+          { merchantName: { contains: query.search, mode: 'insensitive' } },
+        ],
+      },
+    ]
   }
 
   const [transactions, total] = await Promise.all([
@@ -61,6 +67,7 @@ export async function getTransactions(userId: string, query: TransactionQuery) {
       include: {
         fromAccount: { select: { id: true, name: true, accountNumber: true } },
         toAccount: { select: { id: true, name: true, accountNumber: true } },
+        card: { select: { id: true, last4: true } },
       },
       orderBy: { createdAt: 'desc' },
       skip,
@@ -86,6 +93,7 @@ export async function getTransactionById(id: string, userId: string) {
     include: {
       fromAccount: { select: { id: true, name: true, accountNumber: true, userId: true } },
       toAccount: { select: { id: true, name: true, accountNumber: true, userId: true } },
+      card: { select: { id: true, last4: true } },
     },
   })
   if (!tx) throw new NotFoundError('Transaction')
