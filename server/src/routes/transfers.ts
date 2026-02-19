@@ -9,12 +9,13 @@ const router = Router()
 router.use(authenticate)
 
 const transferSchema = z.object({
-  fromAccountId: z.string().min(1),
+  fromAccountId: z.string().min(1).optional(),
   toAccountId: z.string().min(1),
   amountCents: z.number().int().positive(),
   memo: z.string().max(500).optional(),
   provider: z.enum(['internal', 'stripe', 'moov']).default('stripe'),
   moovRailType: z.enum(['ach-standard', 'ach-same-day', 'rtp', 'fund']).optional(),
+  paymentMethodId: z.string().optional(),
 })
 
 router.post(
@@ -22,7 +23,7 @@ router.post(
   validateBody(transferSchema),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const { fromAccountId, toAccountId, amountCents, memo, provider, moovRailType } = req.body
+      const { fromAccountId, toAccountId, amountCents, memo, provider, moovRailType, paymentMethodId } = req.body
       const result = await initiateTransfer(
         req.user!.userId,
         fromAccountId,
@@ -31,6 +32,7 @@ router.post(
         memo,
         provider,
         moovRailType,
+        paymentMethodId,
       )
       res.status(201).json(result)
     } catch (err) {

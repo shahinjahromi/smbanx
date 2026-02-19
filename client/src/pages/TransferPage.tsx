@@ -1,4 +1,6 @@
 import { useState } from 'react'
+import { loadStripe } from '@stripe/stripe-js'
+import { Elements } from '@stripe/react-stripe-js'
 import { Card } from '../components/ui/Card'
 import { TransferForm } from '../components/transfers/TransferForm'
 import { ConfirmModal } from '../components/transfers/ConfirmModal'
@@ -6,6 +8,8 @@ import { useAccounts } from '../hooks/useAccounts'
 import { useTransfer } from '../hooks/useTransfer'
 import type { TransferPayload } from '../api/transfers'
 import type { MoovRailType } from '../types'
+
+const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY ?? '')
 
 export function TransferPage() {
   const { accounts, loading: accountsLoading, refetch } = useAccounts()
@@ -16,14 +20,15 @@ export function TransferPage() {
   const [pendingToName, setPendingToName] = useState<string | undefined>()
 
   async function handleFormSubmit(data: {
-    fromAccountId: string
+    fromAccountId?: string
     toAccountId: string
     amountCents: number
     memo?: string
     provider: 'internal' | 'stripe' | 'moov'
     moovRailType?: MoovRailType
-    fromAccountName: string
+    fromAccountName?: string
     toAccountName: string
+    paymentMethodId?: string
   }) {
     setPendingRailType(data.moovRailType)
     setPendingFromName(data.fromAccountName)
@@ -58,11 +63,13 @@ export function TransferPage() {
         ) : accounts.length === 0 ? (
           <p className="text-sm text-gray-500">You need at least one account to make a transfer.</p>
         ) : (
-          <TransferForm
-            accounts={accounts}
-            onSubmit={handleFormSubmit}
-            loading={step === 'confirming' && !pendingTransfer}
-          />
+          <Elements stripe={stripePromise}>
+            <TransferForm
+              accounts={accounts}
+              onSubmit={handleFormSubmit}
+              loading={step === 'confirming' && !pendingTransfer}
+            />
+          </Elements>
         )}
       </Card>
 

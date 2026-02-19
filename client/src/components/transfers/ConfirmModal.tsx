@@ -43,7 +43,7 @@ export function ConfirmModal({
       return `Moov — ${moovRailLabels[moovRailType]}`
     }
     if (tx.provider === 'moov') return 'Moov — Bank Transfer'
-    return 'Stripe (card)'
+    return 'Card payment (Stripe)'
   }
 
   return (
@@ -63,10 +63,12 @@ export function ConfirmModal({
       {step === 'confirming' && pendingTransfer && (
         <div className="space-y-4">
           <div className="rounded-lg bg-gray-50 p-4 space-y-2">
-            <div className="flex justify-between text-sm">
-              <span className="text-gray-500">From</span>
-              <span className="font-medium">{fromAccountName ?? '—'}</span>
-            </div>
+            {fromAccountName != null && (
+              <div className="flex justify-between text-sm">
+                <span className="text-gray-500">From</span>
+                <span className="font-medium">{fromAccountName}</span>
+              </div>
+            )}
             <div className="flex justify-between text-sm">
               <span className="text-gray-500">To</span>
               <span className="font-medium">{toAccountName ?? '—'}</span>

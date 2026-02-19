@@ -12,21 +12,47 @@ type MoovRailType = 'ach-standard' | 'ach-same-day' | 'rtp' | 'fund'
 
 export async function initiateTransfer(
   userId: string,
-  fromAccountId: string,
+  fromAccountId: string | undefined,
   toAccountId: string,
   amountCents: number,
   memo?: string,
   provider: Provider = 'stripe',
   moovRailType?: MoovRailType,
+  paymentMethodId?: string,
 ) {
-  // Validate accounts
-  const [fromAccount, toAccount] = await Promise.all([
-    prisma.account.findUnique({ where: { id: fromAccountId } }),
-    prisma.account.findUnique({ where: { id: toAccountId } }),
-  ])
-
-  if (!fromAccount) throw new NotFoundError('Source account')
+  const toAccount = await prisma.account.findUnique({ where: { id: toAccountId } })
   if (!toAccount) throw new NotFoundError('Destination account')
+
+  // For stripe card-funding, fromAccountId is not required
+  if (provider === 'stripe' && !fromAccountId) {
+    if (toAccount.userId !== userId) throw new ForbiddenError('Access denied to destination account')
+    if (amountCents <= 0) throw new ValidationError('Amount must be positive')
+
+    const pi = await createPaymentIntent(amountCents, toAccount.currency, memo, paymentMethodId)
+
+    const [creditTx] = await prisma.$transaction([
+      prisma.transaction.create({
+        data: {
+          fromAccountId: null,
+          toAccountId,
+          amountCents,
+          type: 'CREDIT',
+          status: 'PENDING',
+          memo,
+          stripePaymentIntentId: pi.id,
+          provider: 'stripe',
+        },
+      }),
+    ])
+
+    return { transaction: creditTx, paymentIntentId: pi.id, clientSecret: pi.client_secret }
+  }
+
+  // All other providers require fromAccountId
+  if (!fromAccountId) throw new ValidationError('Source account is required')
+
+  const fromAccount = await prisma.account.findUnique({ where: { id: fromAccountId } })
+  if (!fromAccount) throw new NotFoundError('Source account')
   if (fromAccount.userId !== userId) throw new ForbiddenError('Access denied to source account')
   if (fromAccountId === toAccountId) throw new ValidationError('Cannot transfer to same account')
   if (amountCents <= 0) throw new ValidationError('Amount must be positive')
@@ -94,8 +120,8 @@ export async function initiateTransfer(
     return { transaction: debitTx, paymentIntentId: transferId, clientSecret: null, feeCents: moovFeeCents }
   }
 
-  // Stripe path (default)
-  const pi = await createPaymentIntent(amountCents, fromAccount.currency, memo)
+  // Stripe path with fromAccount (legacy path, kept for compatibility)
+  const pi = await createPaymentIntent(amountCents, fromAccount.currency, memo, paymentMethodId)
 
   const [debitTx] = await prisma.$transaction([
     prisma.transaction.create({
@@ -125,14 +151,19 @@ export async function confirmTransfer(transactionId: string, userId: string) {
   })
 
   if (!tx) throw new NotFoundError('Transaction')
-  if (tx.fromAccount?.userId !== userId) throw new ForbiddenError('Access denied')
+
+  // Ownership check: use toAccount when there's no fromAccount (stripe card-funding)
+  const ownerUserId = tx.fromAccount ? tx.fromAccount.userId : tx.toAccount?.userId
+  if (ownerUserId !== userId) throw new ForbiddenError('Access denied')
+
   if (tx.status !== 'PENDING') {
     throw new AppError(`Transaction is already ${tx.status.toLowerCase()}`, 400, 'INVALID_STATE')
   }
-  if (!tx.fromAccountId || !tx.toAccountId) throw new AppError('Invalid transaction accounts', 500)
+  if (!tx.toAccountId) throw new AppError('Invalid transaction accounts', 500)
 
   // Internal path — direct balance transfer, no external payment gateway
   if (tx.provider === 'internal') {
+    if (!tx.fromAccountId) throw new AppError('Invalid transaction accounts', 500)
     const [updatedTx] = await prisma.$transaction([
       prisma.transaction.update({ where: { id: transactionId }, data: { status: 'COMPLETED' } }),
       prisma.account.update({
@@ -149,6 +180,7 @@ export async function confirmTransfer(transactionId: string, userId: string) {
 
   // Moov path
   if (tx.moovTransferId) {
+    if (!tx.fromAccountId) throw new AppError('Invalid transaction accounts', 500)
     const { status } = await moovGetTransfer(tx.moovTransferId)
 
     if (status !== 'completed') {
@@ -188,6 +220,21 @@ export async function confirmTransfer(transactionId: string, userId: string) {
     throw new AppError(`Payment failed with status: ${pi.status}`, 400, 'PAYMENT_FAILED')
   }
 
+  // Stripe card-funding: only credit toAccount (no fromAccount to debit)
+  if (!tx.fromAccountId) {
+    const [updatedTx] = await prisma.$transaction([
+      prisma.transaction.update({
+        where: { id: transactionId },
+        data: { status: 'COMPLETED' },
+      }),
+      prisma.account.update({
+        where: { id: tx.toAccountId },
+        data: { balanceCents: { increment: tx.amountCents } },
+      }),
+    ])
+    return updatedTx
+  }
+
   const [updatedTx] = await prisma.$transaction([
     prisma.transaction.update({
       where: { id: transactionId },
@@ -209,11 +256,12 @@ export async function confirmTransfer(transactionId: string, userId: string) {
 export async function cancelTransfer(transactionId: string, userId: string) {
   const tx = await prisma.transaction.findUnique({
     where: { id: transactionId },
-    include: { fromAccount: true },
+    include: { fromAccount: true, toAccount: true },
   })
 
   if (!tx) throw new NotFoundError('Transaction')
-  if (tx.fromAccount?.userId !== userId) throw new ForbiddenError('Access denied')
+  const ownerUserId = tx.fromAccount ? tx.fromAccount.userId : tx.toAccount?.userId
+  if (ownerUserId !== userId) throw new ForbiddenError('Access denied')
   if (tx.status !== 'PENDING') {
     throw new AppError(`Cannot cancel a ${tx.status.toLowerCase()} transaction`, 400, 'INVALID_STATE')
   }

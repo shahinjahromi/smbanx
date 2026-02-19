@@ -2,12 +2,13 @@ import api from './axios'
 import type { Transaction, TransferResult, MoovRailType } from '../types'
 
 export interface TransferPayload {
-  fromAccountId: string
+  fromAccountId?: string
   toAccountId: string
   amountCents: number
   memo?: string
   provider?: 'internal' | 'stripe' | 'moov'
   moovRailType?: MoovRailType
+  paymentMethodId?: string
 }
 
 export async function initiateTransfer(payload: TransferPayload): Promise<TransferResult> {

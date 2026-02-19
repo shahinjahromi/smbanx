@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { CardElement, useStripe, useElements } from '@stripe/react-stripe-js'
 import { Input, Select } from '../ui/Input'
 import { Button } from '../ui/Button'
 import { parseDollarsToCents } from '../../utils/currency'
@@ -10,14 +11,15 @@ type TransferType = 'internal' | 'stripe' | 'moov'
 interface TransferFormProps {
   accounts: Account[]
   onSubmit: (data: {
-    fromAccountId: string
+    fromAccountId?: string
     toAccountId: string
     amountCents: number
     memo?: string
     provider: TransferType
     moovRailType?: MoovRailType
-    fromAccountName: string
+    fromAccountName?: string
     toAccountName: string
+    paymentMethodId?: string
   }) => void
   loading: boolean
 }
@@ -31,11 +33,26 @@ const moovRailOptions: { value: MoovRailType; label: string }[] = [
 
 const tabs: { value: TransferType; label: string; description: string }[] = [
   { value: 'internal', label: 'My Accounts', description: 'Between your own accounts — instant, no fees' },
-  { value: 'stripe', label: 'Stripe', description: 'Card payment (test mode)' },
+  { value: 'stripe', label: 'Fund via card', description: 'Charge a card and credit your account' },
   { value: 'moov', label: 'Moov', description: 'ACH, RTP bank transfer' },
 ]
 
+const CARD_ELEMENT_OPTIONS = {
+  style: {
+    base: {
+      fontSize: '14px',
+      color: '#111827',
+      fontFamily: 'ui-sans-serif, system-ui, sans-serif',
+      '::placeholder': { color: '#9ca3af' },
+    },
+    invalid: { color: '#dc2626' },
+  },
+}
+
 export function TransferForm({ accounts, onSubmit, loading }: TransferFormProps) {
+  const stripe = useStripe()
+  const elements = useElements()
+
   const [transferType, setTransferType] = useState<TransferType>('internal')
   const [fromAccountId, setFromAccountId] = useState('')
   const [toAccountId, setToAccountId] = useState('')
@@ -44,6 +61,7 @@ export function TransferForm({ accounts, onSubmit, loading }: TransferFormProps)
   const [moovRailType, setMoovRailType] = useState<MoovRailType>('ach-standard')
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [moovDestinations, setMoovDestinations] = useState<Account[]>([])
+  const [cardError, setCardError] = useState<string | undefined>()
 
   useEffect(() => {
     if (transferType === 'moov') {
@@ -53,6 +71,7 @@ export function TransferForm({ accounts, onSubmit, loading }: TransferFormProps)
     setFromAccountId('')
     setToAccountId('')
     setErrors({})
+    setCardError(undefined)
   }, [transferType])
 
   // Accounts eligible as "From" source
@@ -69,9 +88,11 @@ export function TransferForm({ accounts, onSubmit, loading }: TransferFormProps)
 
   function validate() {
     const errs: Record<string, string> = {}
-    if (!fromAccountId) errs.from = 'Please select a source account'
+    if (transferType !== 'stripe') {
+      if (!fromAccountId) errs.from = 'Please select a source account'
+    }
     if (!toAccountId) errs.to = 'Please select a destination account'
-    if (fromAccountId && toAccountId && fromAccountId === toAccountId) {
+    if (transferType !== 'stripe' && fromAccountId && toAccountId && fromAccountId === toAccountId) {
       errs.to = 'Destination must be different from source'
     }
     const cents = parseDollarsToCents(amount)
@@ -81,7 +102,7 @@ export function TransferForm({ accounts, onSubmit, loading }: TransferFormProps)
     return errs
   }
 
-  function handleSubmit(e: React.FormEvent) {
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     const errs = validate()
     if (Object.keys(errs).length > 0) {
@@ -89,6 +110,36 @@ export function TransferForm({ accounts, onSubmit, loading }: TransferFormProps)
       return
     }
     setErrors({})
+
+    if (transferType === 'stripe') {
+      if (!stripe || !elements) return
+      const cardElement = elements.getElement(CardElement)
+      if (!cardElement) return
+
+      const { error, paymentMethod } = await stripe.createPaymentMethod({
+        type: 'card',
+        card: cardElement,
+      })
+
+      if (error) {
+        setCardError(error.message)
+        return
+      }
+      setCardError(undefined)
+
+      const toAccount = accounts.find((a) => a.id === toAccountId)
+
+      onSubmit({
+        toAccountId,
+        amountCents: parseDollarsToCents(amount),
+        memo: memo.trim() || undefined,
+        provider: 'stripe',
+        fromAccountName: undefined,
+        toAccountName: toAccount?.name ?? toAccountId,
+        paymentMethodId: paymentMethod.id,
+      })
+      return
+    }
 
     const fromAccount = fromOptions.find((a) => a.id === fromAccountId)
     const toAccount =
@@ -136,33 +187,35 @@ export function TransferForm({ accounts, onSubmit, loading }: TransferFormProps)
         </div>
       </div>
 
-      {/* From account */}
-      <Select
-        label="From account"
-        value={fromAccountId}
-        onChange={(e) => {
-          setFromAccountId(e.target.value)
-          // If same account was selected as To, clear it
-          if (e.target.value === toAccountId) setToAccountId('')
-        }}
-        error={errors.from}
-      >
-        <option value="">Select source account...</option>
-        {fromOptions.map((a) => (
-          <option key={a.id} value={a.id}>
-            {a.name} ({a.accountNumber})
-          </option>
-        ))}
-        {transferType === 'moov' && fromOptions.length === 0 && (
-          <option disabled value="">
-            No Moov-enabled accounts available
-          </option>
-        )}
-      </Select>
+      {/* From account — hidden for stripe card-funding */}
+      {transferType !== 'stripe' && (
+        <Select
+          label="From account"
+          value={fromAccountId}
+          onChange={(e) => {
+            setFromAccountId(e.target.value)
+            // If same account was selected as To, clear it
+            if (e.target.value === toAccountId) setToAccountId('')
+          }}
+          error={errors.from}
+        >
+          <option value="">Select source account...</option>
+          {fromOptions.map((a) => (
+            <option key={a.id} value={a.id}>
+              {a.name} ({a.accountNumber})
+            </option>
+          ))}
+          {transferType === 'moov' && fromOptions.length === 0 && (
+            <option disabled value="">
+              No Moov-enabled accounts available
+            </option>
+          )}
+        </Select>
+      )}
 
       {/* To account */}
       <Select
-        label="To account"
+        label={transferType === 'stripe' ? 'Account to credit' : 'To account'}
         value={toAccountId}
         onChange={(e) => setToAccountId(e.target.value)}
         error={errors.to}
@@ -179,6 +232,24 @@ export function TransferForm({ accounts, onSubmit, loading }: TransferFormProps)
           </option>
         )}
       </Select>
+
+      {/* Stripe card element */}
+      {transferType === 'stripe' && (
+        <div>
+          <span className="block text-sm font-medium text-gray-700 mb-1.5">Card details</span>
+          <div
+            className={`rounded-lg border px-3 py-3 bg-white ${
+              cardError ? 'border-red-500' : 'border-gray-300'
+            } focus-within:border-blue-500 focus-within:ring-1 focus-within:ring-blue-500`}
+          >
+            <CardElement options={CARD_ELEMENT_OPTIONS} />
+          </div>
+          {cardError && <p className="mt-1 text-xs text-red-600">{cardError}</p>}
+          <p className="mt-1.5 text-xs text-gray-400">
+            Test card: <span className="font-mono select-all">4242 4242 4242 4242</span> · Exp: <span className="font-mono select-all">12/34</span> · CVC: <span className="font-mono select-all">123</span>
+          </p>
+        </div>
+      )}
 
       {/* Moov rail type */}
       {transferType === 'moov' && (
@@ -205,7 +276,7 @@ export function TransferForm({ accounts, onSubmit, loading }: TransferFormProps)
         onChange={(e) => setAmount(e.target.value)}
         error={errors.amount}
         helperText={
-          fromAccount
+          transferType !== 'stripe' && fromAccount
             ? `Available: $${(fromAccount.balanceCents / 100).toLocaleString('en-US', { minimumFractionDigits: 2 })}`
             : undefined
         }
