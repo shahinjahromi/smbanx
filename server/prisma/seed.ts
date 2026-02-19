@@ -18,6 +18,7 @@ async function main() {
 
   // Clean up
   await prisma.transaction.deleteMany()
+  await prisma.card.deleteMany()
   await prisma.refreshToken.deleteMany()
   await prisma.account.deleteMany()
   await prisma.user.deleteMany()
@@ -102,6 +103,10 @@ async function main() {
       currency: 'USD',
     },
   })
+
+  // Create debit cards for checking accounts
+  await prisma.card.create({ data: { accountId: aliceChecking.id, last4: '4242', expiryMonth: 12, expiryYear: 29 } })
+  await prisma.card.create({ data: { accountId: bobChecking.id, last4: '1234', expiryMonth: 9, expiryYear: 28 } })
 
   console.log('Created users and accounts...')
 

@@ -59,7 +59,16 @@ export function TransactionTable({
                   {formatDateTime(tx.createdAt)}
                 </td>
                 <td className="py-3 pr-4 max-w-xs">
-                  <p className="truncate text-gray-900">{tx.memo ?? '—'}</p>
+                  {tx.provider === 'card' && tx.merchantName ? (
+                    <div className="flex items-center gap-1.5">
+                      <svg className="h-3.5 w-3.5 flex-shrink-0 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
+                      </svg>
+                      <p className="truncate text-gray-900">{tx.merchantName}</p>
+                    </div>
+                  ) : (
+                    <p className="truncate text-gray-900">{tx.memo ?? '—'}</p>
+                  )}
                 </td>
                 <td className="py-3 pr-4 text-gray-500">
                   {tx.fromAccount?.name ?? '—'}

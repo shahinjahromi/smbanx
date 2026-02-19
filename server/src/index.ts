@@ -13,6 +13,8 @@ import accountsRoutes from './routes/accounts'
 import transactionsRoutes from './routes/transactions'
 import transfersRoutes from './routes/transfers'
 import webhooksRoutes from './routes/webhooks'
+import cardsRoutes from './routes/cards'
+import simulatorRoutes from './routes/simulator'
 
 const app = express()
 
@@ -44,6 +46,8 @@ app.use('/api/auth', authRoutes)
 app.use('/api/accounts', accountsRoutes)
 app.use('/api/transactions', transactionsRoutes)
 app.use('/api/transfers', transfersRoutes)
+app.use('/api/cards', cardsRoutes)
+app.use('/api/simulator', simulatorRoutes)
 
 // Health check
 app.get('/health', (_req, res) => res.json({ status: 'ok', timestamp: new Date().toISOString() }))

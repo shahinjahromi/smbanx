@@ -1,6 +1,7 @@
 export type AccountType = 'CHECKING' | 'SAVINGS' | 'BUSINESS'
 export type TransactionType = 'DEBIT' | 'CREDIT'
 export type TransactionStatus = 'PENDING' | 'COMPLETED' | 'FAILED' | 'CANCELLED'
+export type CardStatus = 'ACTIVE' | 'FROZEN'
 
 export interface Account {
   id: string
@@ -21,6 +22,22 @@ export interface TransactionAccount {
   accountNumber: string
 }
 
+export interface Card {
+  id: string
+  accountId: string
+  last4: string
+  expiryMonth: number
+  expiryYear: number
+  status: CardStatus
+  createdAt: string
+  account: {
+    id: string
+    name: string
+    accountNumber: string
+    balanceCents: number
+  }
+}
+
 export interface Transaction {
   id: string
   fromAccountId: string | null
@@ -31,11 +48,14 @@ export interface Transaction {
   memo: string | null
   stripePaymentIntentId: string | null
   moovTransferId: string | null
-  provider: 'internal' | 'stripe' | 'moov' | null
+  provider: 'internal' | 'stripe' | 'moov' | 'card' | null
+  cardId?: string | null
+  merchantName?: string | null
   createdAt: string
   updatedAt: string
   fromAccount?: TransactionAccount | null
   toAccount?: TransactionAccount | null
+  card?: { id: string; last4: string } | null
 }
 
 export type MoovRailType = 'ach-standard' | 'ach-same-day' | 'rtp' | 'fund'
@@ -58,7 +78,7 @@ export interface AuthUser {
 }
 
 export interface TransferFormData {
-  fromAccountId: string
+  fromAccountId?: string
   toAccountId: string
   amountCents: number
   memo?: string

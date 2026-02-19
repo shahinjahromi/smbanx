@@ -13,6 +13,11 @@ enum AccountType {
   BUSINESS
 }
 
+enum CardStatus {
+  ACTIVE
+  FROZEN
+}
+
 enum TransactionType {
   DEBIT
   CREDIT
@@ -56,6 +61,7 @@ model Account {
   user                 User          @relation(fields: [userId], references: [id])
   outgoingTransactions Transaction[] @relation("FromAccount")
   incomingTransactions Transaction[] @relation("ToAccount")
+  card                 Card?
 }
 
 model Transaction {
@@ -68,13 +74,30 @@ model Transaction {
   memo                  String?
   stripePaymentIntentId String?
   moovTransferId        String?     // Moov transfer ID (populated when provider = 'moov')
-  provider              String?     // 'stripe' | 'moov' — defaults to 'stripe'
+  provider              String?     // 'stripe' | 'moov' | 'card' — defaults to 'stripe'
+  cardId                String?
+  merchantName          String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   fromAccount Account? @relation("FromAccount", fields: [fromAccountId], references: [id])
   toAccount   Account? @relation("ToAccount", fields: [toAccountId], references: [id])
+  card        Card?    @relation(fields: [cardId], references: [id])
+}
+
+model Card {
+  id          String     @id @default(cuid())
+  accountId   String     @unique
+  last4       String
+  expiryMonth Int
+  expiryYear  Int
+  status      CardStatus @default(ACTIVE)
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  account      Account       @relation(fields: [accountId], references: [id])
+  transactions Transaction[]
 }
 
 model RefreshToken {
