@@ -18,18 +18,39 @@ steps:
     displayName: 'Use Node $(NODE_VERSION)'
 
   # If your app is in repo root, delete workingDirectory lines.
+  - script: |
+      node -v
+      npm -v
+    displayName: "Show Node/NPM"
+
+  - script: npm ci
+    displayName: "Install deps"
+    # workingDirectory: web
+
+  - script: npm run lint --if-present
+    displayName: "Lint"
+    # workingDirectory: web
+
+  - script: npm test --if-present
+    displayName: "Test"
+    # workingDirectory: web
+
+  - script: npm run build
+    displayName: "Build"
+    # workingDirectory: web
+  
   - script: npm ci
     displayName: 'Install dependencies'
-    workingDirectory: web
+    # workingDirectory: web
 
   - script: npm run lint --if-present
     displayName: 'Lint'
-    workingDirectory: web
+    # workingDirectory: web
 
   - script: npm test --if-present
     displayName: 'Test'
-    workingDirectory: web
+    # workingDirectory: web
 
   - script: npm run build
     displayName: 'Build'
-    workingDirectory: web
+    # workingDirectory: web
