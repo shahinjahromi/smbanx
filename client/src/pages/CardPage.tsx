@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useParams, Link, Navigate } from 'react-router-dom'
+import { isAxiosError } from 'axios'
 import { useCards } from '../hooks/useCards'
 import { useTransactions } from '../hooks/useTransactions'
 import { updateCardStatus } from '../api/cards'
@@ -30,7 +31,10 @@ export function CardPage() {
       await refetch()
       setModal(null)
     } catch (err: unknown) {
-      setSaveError(err instanceof Error ? err.message : 'Failed to update card status')
+      const msg = isAxiosError(err)
+        ? (err.response?.data?.error ?? err.message)
+        : err instanceof Error ? err.message : 'Failed to update card status'
+      setSaveError(msg)
     } finally {
       setSaving(false)
     }
@@ -52,6 +56,11 @@ export function CardPage() {
   const mm = String(card.expiryMonth).padStart(2, '0')
   const yy = String(card.expiryYear).slice(-2)
   const isFrozen = card.status === 'FROZEN'
+
+  function openToggle() {
+    setSaveError(null)
+    setModal(isFrozen ? 'unfreeze' : 'freeze')
+  }
 
   return (
     <div className="space-y-6">
@@ -103,7 +112,7 @@ export function CardPage() {
           </div>
 
           {/* Info panel */}
-          <div className="flex flex-col gap-3">
+          <div className="flex flex-col gap-4">
             <div>
               <p className="text-xs uppercase tracking-wide text-gray-500">Card number</p>
               <p className="mt-0.5 font-mono text-lg font-semibold text-gray-900">Visa ••••{card.last4}</p>
@@ -112,28 +121,47 @@ export function CardPage() {
               <p className="text-xs uppercase tracking-wide text-gray-500">Expires</p>
               <p className="mt-0.5 font-mono text-sm text-gray-700">{mm}/{yy}</p>
             </div>
+
+            {/* Lock toggle */}
             <div>
-              <p className="text-xs uppercase tracking-wide text-gray-500">Status</p>
-              <span
-                className={`mt-1 inline-flex rounded-full px-2.5 py-0.5 text-xs font-semibold ${
-                  isFrozen
-                    ? 'bg-red-100 text-red-700'
-                    : 'bg-green-100 text-green-700'
-                }`}
-              >
-                {isFrozen ? 'Frozen' : 'Active'}
-              </span>
-            </div>
-            <div className="pt-1">
-              {isFrozen ? (
-                <Button variant="primary" onClick={() => { setSaveError(null); setModal('unfreeze') }}>
-                  Unfreeze Card
-                </Button>
-              ) : (
-                <Button variant="danger" onClick={() => { setSaveError(null); setModal('freeze') }}>
-                  Freeze Card
-                </Button>
-              )}
+              <p className="text-xs uppercase tracking-wide text-gray-500">Lock card</p>
+              <div className="mt-2 flex items-center gap-3">
+                <button
+                  onClick={openToggle}
+                  disabled={saving}
+                  role="switch"
+                  aria-checked={isFrozen}
+                  className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 ${
+                    isFrozen
+                      ? 'bg-red-500 focus:ring-red-400'
+                      : 'bg-gray-200 focus:ring-blue-500'
+                  }`}
+                >
+                  <span
+                    className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                      isFrozen ? 'translate-x-5' : 'translate-x-0'
+                    }`}
+                  />
+                </button>
+
+                {/* Lock icon */}
+                <svg
+                  className={`h-4 w-4 ${isFrozen ? 'text-red-500' : 'text-gray-400'}`}
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                >
+                  {isFrozen ? (
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                  ) : (
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 11V7a4 4 0 118 0m-4 8v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2z" />
+                  )}
+                </svg>
+
+                <span className={`text-sm font-medium ${isFrozen ? 'text-red-600' : 'text-gray-700'}`}>
+                  {isFrozen ? 'Frozen' : 'Active'}
+                </span>
+              </div>
             </div>
           </div>
         </div>
@@ -141,7 +169,7 @@ export function CardPage() {
 
       {/* Transactions */}
       <Card>
-        <div className="mb-4 flex items-center justify-between">
+        <div className="mb-4">
           <h2 className="text-base font-semibold text-gray-900">Card Transactions</h2>
         </div>
         <div className="mb-4">
@@ -159,11 +187,11 @@ export function CardPage() {
         )}
       </Card>
 
-      {/* Freeze modal */}
+      {/* Freeze confirmation modal */}
       <Modal
         open={modal === 'freeze'}
         onClose={() => setModal(null)}
-        title="Freeze Card"
+        title="Freeze card?"
         size="sm"
       >
         <p className="text-sm text-gray-600">
@@ -176,16 +204,16 @@ export function CardPage() {
             Cancel
           </Button>
           <Button variant="danger" onClick={handleConfirm} loading={saving}>
-            Freeze Card
+            Freeze card
           </Button>
         </div>
       </Modal>
 
-      {/* Unfreeze modal */}
+      {/* Unfreeze confirmation modal */}
       <Modal
         open={modal === 'unfreeze'}
         onClose={() => setModal(null)}
-        title="Unfreeze Card"
+        title="Unfreeze card?"
         size="sm"
       >
         <p className="text-sm text-gray-600">
@@ -197,7 +225,7 @@ export function CardPage() {
             Cancel
           </Button>
           <Button variant="primary" onClick={handleConfirm} loading={saving}>
-            Unfreeze Card
+            Unfreeze card
           </Button>
         </div>
       </Modal>
