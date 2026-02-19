@@ -17,7 +17,7 @@ export async function createTransfer(
   currency: string,
   railType: RailType,
   memo?: string,
-): Promise<{ transferId: string; status: string }> {
+): Promise<{ transferId: string; status: string; moovFeeCents: number }> {
   // The SDK types require a full PaymentMethod object, but the Moov API only
   // needs paymentMethodID for source and paymentMethodType for destination.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -34,7 +34,20 @@ export async function createTransfer(
     description: memo ?? '',
   } as any)
 
-  return { transferId: result.transferID, status: 'created' }
+  // Fetch the full transfer to get the Moov fee (moovFee is in cents, e.g. 50 = $0.50)
+  let moovFeeCents = 0
+  try {
+    const transfer = (await moov.transfers.get(result.transferID)) as unknown as {
+      transferID: string
+      status: string
+      moovFee: number
+    }
+    moovFeeCents = transfer.moovFee ?? 0
+  } catch {
+    // Fee info unavailable — proceed without it
+  }
+
+  return { transferId: result.transferID, status: 'created', moovFeeCents }
 }
 
 export async function getTransfer(transferId: string): Promise<{ transferId: string; status: string }> {

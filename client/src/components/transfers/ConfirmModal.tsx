@@ -79,12 +79,33 @@ export function ConfirmModal({
               <span className="text-gray-500">Via</span>
               <span className="font-medium">{viaLabel(pendingTransfer.transaction)}</span>
             </div>
-            <div className="flex justify-between border-t border-gray-200 pt-2 text-base">
-              <span className="font-semibold text-gray-700">Amount</span>
-              <span className="font-bold text-gray-900">
-                {formatCents(pendingTransfer.transaction.amountCents)}
-              </span>
-            </div>
+            {pendingTransfer.feeCents != null && pendingTransfer.feeCents > 0 ? (
+              <>
+                <div className="flex justify-between text-sm">
+                  <span className="text-gray-500">Transfer amount</span>
+                  <span className="font-medium">{formatCents(pendingTransfer.transaction.amountCents)}</span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-gray-500">
+                    {moovRailType === 'rtp' ? 'RTP fee' : moovRailType === 'ach-same-day' ? 'Same-day ACH fee' : 'Processing fee'}
+                  </span>
+                  <span className="font-medium text-amber-700">+{formatCents(pendingTransfer.feeCents)}</span>
+                </div>
+                <div className="flex justify-between border-t border-gray-200 pt-2 text-base">
+                  <span className="font-semibold text-gray-700">Total</span>
+                  <span className="font-bold text-gray-900">
+                    {formatCents(pendingTransfer.transaction.amountCents + pendingTransfer.feeCents)}
+                  </span>
+                </div>
+              </>
+            ) : (
+              <div className="flex justify-between border-t border-gray-200 pt-2 text-base">
+                <span className="font-semibold text-gray-700">Amount</span>
+                <span className="font-bold text-gray-900">
+                  {formatCents(pendingTransfer.transaction.amountCents)}
+                </span>
+              </div>
+            )}
           </div>
           <p className="text-xs text-gray-400">
             This is a test mode transfer. No real money will move.

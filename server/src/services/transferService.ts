@@ -67,7 +67,7 @@ export async function initiateTransfer(
     }
 
     const railType = moovRailType ?? 'ach-standard'
-    const { transferId, status } = await moovCreateTransfer(
+    const { transferId, status, moovFeeCents } = await moovCreateTransfer(
       sourcePaymentMethodId,
       destPaymentMethodId,
       amountCents,
@@ -91,7 +91,7 @@ export async function initiateTransfer(
       }),
     ])
 
-    return { transaction: debitTx, paymentIntentId: transferId, clientSecret: null }
+    return { transaction: debitTx, paymentIntentId: transferId, clientSecret: null, feeCents: moovFeeCents }
   }
 
   // Stripe path (default)

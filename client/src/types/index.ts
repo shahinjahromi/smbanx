@@ -70,4 +70,5 @@ export interface TransferResult {
   transaction: Transaction
   paymentIntentId: string | null
   clientSecret: string | null
+  feeCents?: number
 }
