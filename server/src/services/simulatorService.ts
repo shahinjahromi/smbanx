@@ -162,13 +162,9 @@ export async function cancelCardTransaction(transactionId: string, userId: strin
   if (!tx.toAccount) throw new AppError('Invalid transaction', 500)
   if (tx.toAccount.userId !== userId) throw new ForbiddenError('Access denied')
 
-  // Real Marqeta reversal
+  // Real Marqeta reversal (requires amount)
   if (tx.marqetaTransactionToken) {
-    try {
-      await simulateReversal(tx.marqetaTransactionToken)
-    } catch {
-      // Reversal may already have been processed — continue
-    }
+    await simulateReversal(tx.marqetaTransactionToken, tx.amountCents)
   }
 
   return prisma.transaction.update({

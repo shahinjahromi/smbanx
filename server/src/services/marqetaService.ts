@@ -157,9 +157,13 @@ export async function simulateClearing(
   return resp.transaction
 }
 
-export async function simulateReversal(originalTransactionToken: string): Promise<MarqetaTransaction> {
+export async function simulateReversal(
+  originalTransactionToken: string,
+  amountCents: number,
+): Promise<MarqetaTransaction> {
   const resp = await mq<{ transaction: MarqetaTransaction }>('POST', '/simulate/reversal', {
     original_transaction_token: originalTransactionToken,
+    amount: amountCents / 100,
   })
   return resp.transaction
 }

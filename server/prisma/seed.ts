@@ -41,13 +41,45 @@ async function createMarqetaCard(userToken: string) {
   return mqPost('/cards', { user_token: userToken, card_product_token: cardProductToken })
 }
 
-async function fundGPA(userToken: string, amountCents: number) {
-  return mqPost('/gpaorders', {
-    user_token: userToken,
-    amount: amountCents / 100,
-    currency_code: 'USD',
-    funding_source_token: process.env.MARQETA_FUNDING_SOURCE_TOKEN ?? 'sandbox_program_funding',
-  })
+async function getGPALedgerCents(userToken: string): Promise<number> {
+  try {
+    const res = await fetch(`${MQ_BASE}/balances/${userToken}`, {
+      headers: { Authorization: MQ_AUTH, Accept: 'application/json' },
+    })
+    if (!res.ok) return 0
+    const json = await res.json() as { gpa?: { ledger_balance?: number } }
+    return Math.round((json.gpa?.ledger_balance ?? 0) * 100)
+  } catch {
+    return 0
+  }
+}
+
+/** Fund up or drain down a user's GPA to exactly targetCents */
+async function setGPABalance(userToken: string, cardToken: string, targetCents: number) {
+  const currentCents = await getGPALedgerCents(userToken)
+  const delta = targetCents - currentCents
+  if (delta === 0) {
+    console.log(`  GPA ${userToken}: already $${(currentCents / 100).toFixed(2)}, no change needed`)
+    return
+  }
+  if (delta > 0) {
+    // Fund up
+    await mqPost('/gpaorders', {
+      user_token: userToken,
+      amount: delta / 100,
+      currency_code: 'USD',
+      funding_source_token: process.env.MARQETA_FUNDING_SOURCE_TOKEN ?? 'sandbox_program_funding',
+    })
+    console.log(`  GPA ${userToken}: funded +$${(delta / 100).toFixed(2)} (${(currentCents / 100).toFixed(2)} → ${(targetCents / 100).toFixed(2)})`)
+  } else {
+    // Drain down using simulate/financial (direct debit)
+    await mqPost('/simulate/financial', {
+      card_token: cardToken,
+      amount: (-delta) / 100,
+      mid: 'seed_balance_adjust',
+    })
+    console.log(`  GPA ${userToken}: drained -$${((-delta) / 100).toFixed(2)} (${(currentCents / 100).toFixed(2)} → ${(targetCents / 100).toFixed(2)})`)
+  }
 }
 
 function randomInt(min: number, max: number) {
@@ -158,13 +190,13 @@ async function main() {
 
   // Alice
   const mqAlice = await ensureMarqetaUser('banking-mvp-alice', 'Alice', 'Johnson', 'alice@acmecorp.com')
-  await fundGPA('banking-mvp-alice', aliceChecking.balanceCents)
   const mqAliceCard = await createMarqetaCard('banking-mvp-alice') as { token: string; last_four: string; expiration: string }
+  await setGPABalance('banking-mvp-alice', mqAliceCard.token, aliceChecking.balanceCents)
 
   // Bob
   const mqBob = await ensureMarqetaUser('banking-mvp-bob', 'Bob', 'Smith', 'bob@techstart.io')
-  await fundGPA('banking-mvp-bob', bobChecking.balanceCents)
   const mqBobCard = await createMarqetaCard('banking-mvp-bob') as { token: string; last_four: string; expiration: string }
+  await setGPABalance('banking-mvp-bob', mqBobCard.token, bobChecking.balanceCents)
 
   // Store Marqeta tokens in DB
   await prisma.user.update({ where: { id: alice.id }, data: { marqetaUserToken: mqAlice.token as string } })
