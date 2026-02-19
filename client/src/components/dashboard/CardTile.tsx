@@ -51,7 +51,7 @@ export function CardTile({ card }: CardTileProps) {
                 : 'bg-red-500/20 text-red-300'
             }`}
           >
-            {card.status === 'ACTIVE' ? 'Active' : 'Frozen'}
+            {card.status === 'ACTIVE' ? 'Unlocked' : 'Locked'}
           </span>
         </div>
       </div>

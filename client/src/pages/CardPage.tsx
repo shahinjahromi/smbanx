@@ -105,7 +105,7 @@ export function CardPage() {
                     isFrozen ? 'bg-red-500/20 text-red-300' : 'bg-green-500/20 text-green-300'
                   }`}
                 >
-                  {isFrozen ? 'Frozen' : 'Active'}
+                  {isFrozen ? 'Locked' : 'Unlocked'}
                 </span>
               </div>
             </div>
@@ -159,7 +159,7 @@ export function CardPage() {
                 </svg>
 
                 <span className={`text-sm font-medium ${isFrozen ? 'text-red-600' : 'text-gray-700'}`}>
-                  {isFrozen ? 'Frozen' : 'Active'}
+                  {isFrozen ? 'Locked' : 'Unlocked'}
                 </span>
               </div>
             </div>
@@ -187,16 +187,16 @@ export function CardPage() {
         )}
       </Card>
 
-      {/* Freeze confirmation modal */}
+      {/* Lock confirmation modal */}
       <Modal
         open={modal === 'freeze'}
         onClose={() => setModal(null)}
-        title="Freeze card?"
+        title="Lock card?"
         size="sm"
       >
         <p className="text-sm text-gray-600">
-          Freezing your card will immediately decline all new purchases, ATM withdrawals, and online
-          transactions. You can unfreeze at any time.
+          Locking your card will immediately decline all new purchases, ATM withdrawals, and online
+          transactions. You can unlock it at any time.
         </p>
         {saveError && <p className="mt-3 text-sm text-red-600">{saveError}</p>}
         <div className="mt-5 flex justify-end gap-3">
@@ -204,16 +204,16 @@ export function CardPage() {
             Cancel
           </Button>
           <Button variant="danger" onClick={handleConfirm} loading={saving}>
-            Freeze card
+            Lock card
           </Button>
         </div>
       </Modal>
 
-      {/* Unfreeze confirmation modal */}
+      {/* Unlock confirmation modal */}
       <Modal
         open={modal === 'unfreeze'}
         onClose={() => setModal(null)}
-        title="Unfreeze card?"
+        title="Unlock card?"
         size="sm"
       >
         <p className="text-sm text-gray-600">
@@ -225,7 +225,7 @@ export function CardPage() {
             Cancel
           </Button>
           <Button variant="primary" onClick={handleConfirm} loading={saving}>
-            Unfreeze card
+            Unlock card
           </Button>
         </div>
       </Modal>
