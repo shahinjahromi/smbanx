@@ -7,6 +7,7 @@ import { DashboardPage } from './pages/DashboardPage'
 import { TransactionsPage } from './pages/TransactionsPage'
 import { TransferPage } from './pages/TransferPage'
 import { CardSimulatorPage } from './pages/CardSimulatorPage'
+import { CardPage } from './pages/CardPage'
 
 export default function App() {
   return (
@@ -21,6 +22,7 @@ export default function App() {
               <Route path="/transactions" element={<TransactionsPage />} />
               <Route path="/transfer" element={<TransferPage />} />
               <Route path="/card-simulator" element={<CardSimulatorPage />} />
+              <Route path="/cards/:id" element={<CardPage />} />
             </Route>
           </Route>
 

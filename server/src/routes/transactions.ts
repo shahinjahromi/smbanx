@@ -18,6 +18,7 @@ router.get('/', async (req: Request, res: Response, next: NextFunction) => {
       from,
       to,
       accountId,
+      cardId,
     } = req.query as Record<string, string | undefined>
 
     const result = await getTransactions(req.user!.userId, {
@@ -29,6 +30,7 @@ router.get('/', async (req: Request, res: Response, next: NextFunction) => {
       from,
       to,
       accountId,
+      cardId,
     })
 
     res.json(result)

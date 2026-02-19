@@ -11,6 +11,7 @@ export interface TransactionQuery {
   from?: string
   to?: string
   accountId?: string
+  cardId?: string
 }
 
 export async function getTransactions(userId: string, query: TransactionQuery) {
@@ -31,6 +32,10 @@ export async function getTransactions(userId: string, query: TransactionQuery) {
       { fromAccountId: query.accountId, fromAccount: { userId } },
       { toAccountId: query.accountId, toAccount: { userId } },
     ]
+  }
+
+  if (query.cardId) {
+    where.cardId = query.cardId
   }
 
   if (query.type) {

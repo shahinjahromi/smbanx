@@ -10,6 +10,7 @@ export interface TransactionFilters {
   from?: string
   to?: string
   accountId?: string
+  cardId?: string
 }
 
 export async function fetchTransactions(filters: TransactionFilters = {}): Promise<TransactionsResponse> {

@@ -28,3 +28,8 @@ export async function getCardById(cardId: string, userId: string) {
 
   return card
 }
+
+export async function updateCardStatus(cardId: string, userId: string, status: 'ACTIVE' | 'FROZEN') {
+  await getCardById(cardId, userId)
+  return prisma.card.update({ where: { id: cardId }, data: { status } })
+}

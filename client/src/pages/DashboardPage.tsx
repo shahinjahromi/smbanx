@@ -1,13 +1,16 @@
 import { useAuth } from '../hooks/useAuth'
 import { useAccounts } from '../hooks/useAccounts'
+import { useCards } from '../hooks/useCards'
 import { useTransactions } from '../hooks/useTransactions'
 import { AccountCard } from '../components/dashboard/AccountCard'
+import { CardTile } from '../components/dashboard/CardTile'
 import { RecentTransactions } from '../components/dashboard/RecentTransactions'
 import { formatCents } from '../utils/currency'
 
 export function DashboardPage() {
   const { email } = useAuth()
   const { accounts, loading: accountsLoading } = useAccounts()
+  const { cards, loading: cardsLoading } = useCards()
   const { transactions, loading: txLoading } = useTransactions({ limit: 10 })
 
   const totalBalance = accounts.reduce((sum, a) => sum + a.balanceCents, 0)
@@ -51,6 +54,26 @@ export function DashboardPage() {
           </div>
         )}
       </div>
+
+      {/* Cards */}
+      {(cardsLoading || cards.length > 0) && (
+        <div>
+          <h3 className="mb-3 text-base font-semibold text-gray-900">Your Cards</h3>
+          {cardsLoading ? (
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              {[1].map((i) => (
+                <div key={i} className="animate-pulse rounded-2xl bg-gray-200" style={{ aspectRatio: '1.586 / 1' }} />
+              ))}
+            </div>
+          ) : (
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              {cards.map((card) => (
+                <CardTile key={card.id} card={card} />
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Recent transactions */}
       <RecentTransactions transactions={transactions} loading={txLoading} />
