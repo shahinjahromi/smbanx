@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import { isAxiosError } from 'axios'
 import { useCards } from '../hooks/useCards'
 import { createCardTransaction, postCardTransaction, voidCardTransaction, fetchPendingAuths } from '../api/simulator'
 import { parseDollarsToCents, formatCents } from '../utils/currency'
@@ -87,7 +88,10 @@ export function CardSimulatorPage() {
       setMemo('')
       await loadPendingAuths()
     } catch (err: unknown) {
-      setErrorMsg(err instanceof Error ? err.message : 'Failed to create transaction')
+      const msg = isAxiosError(err)
+        ? (err.response?.data?.error ?? err.message)
+        : err instanceof Error ? err.message : 'Failed to create transaction'
+      setErrorMsg(msg)
     } finally {
       setSubmitting(false)
     }
@@ -99,7 +103,10 @@ export function CardSimulatorPage() {
       await postCardTransaction(txId)
       await loadPendingAuths()
     } catch (err: unknown) {
-      alert(err instanceof Error ? err.message : 'Failed to post transaction')
+      const msg = isAxiosError(err)
+        ? (err.response?.data?.error ?? err.message)
+        : err instanceof Error ? err.message : 'Failed to post transaction'
+      alert(msg)
     } finally {
       setPostingId(null)
     }
@@ -111,7 +118,10 @@ export function CardSimulatorPage() {
       await voidCardTransaction(txId)
       await loadPendingAuths()
     } catch (err: unknown) {
-      alert(err instanceof Error ? err.message : 'Failed to void authorization')
+      const msg = isAxiosError(err)
+        ? (err.response?.data?.error ?? err.message)
+        : err instanceof Error ? err.message : 'Failed to void authorization'
+      alert(msg)
     } finally {
       setVoidingId(null)
     }
