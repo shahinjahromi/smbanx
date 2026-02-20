@@ -101,6 +101,8 @@ export function LoginPage() {
           <p className="font-medium text-gray-700 mb-1">Demo accounts:</p>
           <p>alice@acmecorp.com / demo1234</p>
           <p>bob@techstart.io / demo1234</p>
+          <p>carol@techflow.io / demo1234</p>
+          <p>dave@vertexlabs.io / demo1234</p>
         </div>
       </div>
     </div>
