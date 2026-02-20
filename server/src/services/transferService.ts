@@ -5,9 +5,10 @@ import {
   getTransfer as moovGetTransfer,
   cancelTransfer as moovCancelTransfer,
 } from './moovService'
+import { createNymbusTransfer } from './nymbusService'
 import { NotFoundError, ForbiddenError, AppError, ValidationError } from '../utils/errors'
 
-type Provider = 'internal' | 'stripe' | 'moov'
+type Provider = 'internal' | 'stripe' | 'moov' | 'nymbus'
 type MoovRailType = 'ach-standard' | 'ach-same-day' | 'rtp' | 'fund'
 
 export async function initiateTransfer(
@@ -120,6 +121,39 @@ export async function initiateTransfer(
     return { transaction: debitTx, paymentIntentId: transferId, clientSecret: null, feeCents: moovFeeCents }
   }
 
+  if (provider === 'nymbus') {
+    if (!fromAccount.nymbusAccountId) throw new ValidationError('Source account has no Nymbus account ID')
+    if (!toAccount.nymbusAccountId) throw new ValidationError('Destination account has no Nymbus account ID')
+
+    const fromUser = await prisma.user.findUnique({ where: { id: fromAccount.userId }, select: { nymbusCustomerId: true } })
+    if (!fromUser?.nymbusCustomerId) throw new ValidationError('Source user has no Nymbus customer ID')
+
+    const amountDollars = amountCents / 100
+    const nymbusTransferId = await createNymbusTransfer(
+      fromUser.nymbusCustomerId,
+      fromAccount.nymbusAccountId,
+      toAccount.nymbusAccountId,
+      amountDollars,
+      memo,
+    )
+
+    const [debitTx] = await prisma.$transaction([
+      prisma.transaction.create({
+        data: {
+          fromAccountId,
+          toAccountId,
+          amountCents,
+          type: 'DEBIT',
+          status: 'PENDING',
+          memo,
+          nymbusTransferId,
+          provider: 'nymbus',
+        },
+      }),
+    ])
+    return { transaction: debitTx, paymentIntentId: nymbusTransferId, clientSecret: null }
+  }
+
   // Stripe path with fromAccount (legacy path, kept for compatibility)
   const pi = await createPaymentIntent(amountCents, fromAccount.currency, memo, paymentMethodId)
 
@@ -174,6 +208,17 @@ export async function confirmTransfer(transactionId: string, userId: string) {
         where: { id: tx.toAccountId },
         data: { balanceCents: { increment: tx.amountCents } },
       }),
+    ])
+    return updatedTx
+  }
+
+  // Nymbus path
+  if (tx.provider === 'nymbus') {
+    if (!tx.fromAccountId) throw new AppError('Invalid transaction accounts', 500)
+    const [updatedTx] = await prisma.$transaction([
+      prisma.transaction.update({ where: { id: transactionId }, data: { status: 'COMPLETED' } }),
+      prisma.account.update({ where: { id: tx.fromAccountId }, data: { balanceCents: { decrement: tx.amountCents } } }),
+      prisma.account.update({ where: { id: tx.toAccountId! }, data: { balanceCents: { increment: tx.amountCents } } }),
     ])
     return updatedTx
   }

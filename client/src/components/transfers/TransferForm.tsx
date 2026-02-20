@@ -3,10 +3,10 @@ import { CardElement, useStripe, useElements } from '@stripe/react-stripe-js'
 import { Input, Select } from '../ui/Input'
 import { Button } from '../ui/Button'
 import { parseDollarsToCents } from '../../utils/currency'
-import { fetchMoovDestinations } from '../../api/accounts'
+import { fetchMoovDestinations, fetchNymbusDestinations } from '../../api/accounts'
 import type { Account, MoovRailType } from '../../types'
 
-type TransferType = 'internal' | 'stripe' | 'moov'
+type TransferType = 'internal' | 'stripe' | 'moov' | 'nymbus'
 
 interface TransferFormProps {
   accounts: Account[]
@@ -35,6 +35,7 @@ const tabs: { value: TransferType; label: string; description: string }[] = [
   { value: 'internal', label: 'My Accounts', description: 'Between your own accounts — instant, no fees' },
   { value: 'stripe', label: 'Fund via card', description: 'Charge a card and credit your account' },
   { value: 'moov', label: 'Moov', description: 'ACH, RTP bank transfer' },
+  { value: 'nymbus', label: 'Nymbus', description: 'Nymbus Core bank transfer' },
 ]
 
 const CARD_ELEMENT_OPTIONS = {
@@ -61,11 +62,15 @@ export function TransferForm({ accounts, onSubmit, loading }: TransferFormProps)
   const [moovRailType, setMoovRailType] = useState<MoovRailType>('ach-standard')
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [moovDestinations, setMoovDestinations] = useState<Account[]>([])
+  const [nymbusDestinations, setNymbusDestinations] = useState<Account[]>([])
   const [cardError, setCardError] = useState<string | undefined>()
 
   useEffect(() => {
     if (transferType === 'moov') {
       fetchMoovDestinations().then(setMoovDestinations).catch(() => setMoovDestinations([]))
+    }
+    if (transferType === 'nymbus') {
+      fetchNymbusDestinations().then(setNymbusDestinations).catch(() => setNymbusDestinations([]))
     }
     // Reset account selections when transfer type changes
     setFromAccountId('')
@@ -78,12 +83,16 @@ export function TransferForm({ accounts, onSubmit, loading }: TransferFormProps)
   const fromOptions: Account[] =
     transferType === 'moov'
       ? accounts.filter((a) => a.moovPaymentMethodId)
+      : transferType === 'nymbus'
+      ? accounts.filter((a) => a.nymbusAccountId)
       : accounts
 
   // Accounts eligible as "To" destination
   const toOptions: Account[] =
     transferType === 'moov'
       ? moovDestinations
+      : transferType === 'nymbus'
+      ? nymbusDestinations
       : accounts.filter((a) => a.id !== fromAccountId)
 
   function validate() {
@@ -145,6 +154,8 @@ export function TransferForm({ accounts, onSubmit, loading }: TransferFormProps)
     const toAccount =
       transferType === 'moov'
         ? moovDestinations.find((a) => a.id === toAccountId)
+        : transferType === 'nymbus'
+        ? nymbusDestinations.find((a) => a.id === toAccountId)
         : accounts.find((a) => a.id === toAccountId)
 
     onSubmit({
@@ -166,7 +177,7 @@ export function TransferForm({ accounts, onSubmit, loading }: TransferFormProps)
       {/* Transfer type tabs */}
       <div>
         <span className="block text-sm font-medium text-gray-700 mb-2">Transfer type</span>
-        <div className="grid grid-cols-3 gap-2">
+        <div className="grid grid-cols-4 gap-2">
           {tabs.map((tab) => (
             <button
               key={tab.value}
@@ -210,6 +221,11 @@ export function TransferForm({ accounts, onSubmit, loading }: TransferFormProps)
               No Moov-enabled accounts available
             </option>
           )}
+          {transferType === 'nymbus' && fromOptions.length === 0 && (
+            <option disabled value="">
+              No Nymbus-enabled accounts available
+            </option>
+          )}
         </Select>
       )}
 
@@ -229,6 +245,11 @@ export function TransferForm({ accounts, onSubmit, loading }: TransferFormProps)
         {transferType === 'moov' && toOptions.length === 0 && (
           <option disabled value="">
             No Moov-enabled destinations available
+          </option>
+        )}
+        {transferType === 'nymbus' && toOptions.length === 0 && (
+          <option disabled value="">
+            No Nymbus-enabled destinations available
           </option>
         )}
       </Select>

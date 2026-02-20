@@ -29,6 +29,11 @@ export function AccountCard({ account }: AccountCardProps) {
           {label}
         </Badge>
       </div>
+      {account.ledgerBalanceCents !== undefined && (
+        <p className="text-xs text-gray-400 mt-1">
+          Ledger: {formatCents(account.ledgerBalanceCents, account.currency)}
+        </p>
+      )}
       <p className="mt-3 font-mono text-xs text-gray-400">{account.accountNumber}</p>
     </Card>
   )

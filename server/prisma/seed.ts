@@ -183,6 +183,78 @@ async function main() {
     },
   })
 
+  // Create Carol (TechFlow Solutions) — Nymbus-backed
+  const carol = await prisma.user.create({
+    data: {
+      email: 'carol@techflow.io',
+      passwordHash,
+      firstName: 'Carol',
+      lastName: 'Martinez',
+      businessName: 'TechFlow Solutions',
+      nymbusCustomerId: 'nymbus-carol-001',
+    },
+  })
+
+  const carolChecking = await prisma.account.create({
+    data: {
+      userId: carol.id,
+      accountNumber: '5001-0001-0001',
+      accountType: AccountType.CHECKING,
+      name: 'Business Checking',
+      balanceCents: 3_150_000, // $31,500 — DB fallback only
+      currency: 'USD',
+      nymbusAccountId: '5001001001',
+    },
+  })
+
+  const carolSavings = await prisma.account.create({
+    data: {
+      userId: carol.id,
+      accountNumber: '5001-0001-0002',
+      accountType: AccountType.SAVINGS,
+      name: 'Business Savings',
+      balanceCents: 7_500_000, // $75,000 — DB fallback only
+      currency: 'USD',
+      nymbusAccountId: '5001001002',
+    },
+  })
+
+  // Create Dave (Vertex Labs) — Nymbus-backed
+  const dave = await prisma.user.create({
+    data: {
+      email: 'dave@vertexlabs.io',
+      passwordHash,
+      firstName: 'Dave',
+      lastName: 'Chen',
+      businessName: 'Vertex Labs',
+      nymbusCustomerId: 'nymbus-dave-001',
+    },
+  })
+
+  const daveChecking = await prisma.account.create({
+    data: {
+      userId: dave.id,
+      accountNumber: '5002-0001-0001',
+      accountType: AccountType.CHECKING,
+      name: 'Main Checking',
+      balanceCents: 2_200_000, // $22,000 — DB fallback only
+      currency: 'USD',
+      nymbusAccountId: '5002001001',
+    },
+  })
+
+  await prisma.account.create({
+    data: {
+      userId: dave.id,
+      accountNumber: '5002-0001-0002',
+      accountType: AccountType.SAVINGS,
+      name: 'Reserve Savings',
+      balanceCents: 5_000_000, // $50,000 — DB fallback only
+      currency: 'USD',
+      nymbusAccountId: '5002001002',
+    },
+  })
+
   console.log('Created users and accounts...')
 
   // ─── Marqeta integration ─────────────────────────────────────────────────
@@ -318,6 +390,60 @@ async function main() {
     }
   }
 
+  // Generate historical transactions for Carol
+  for (let day = 90; day >= 5; day--) {
+    const txCount = randomInt(1, 3)
+    for (let i = 0; i < txCount; i++) {
+      const amount = randomInt(8000, 400000)
+      const memo = memos[randomInt(0, memos.length - 1)]
+      const isIncoming = Math.random() > 0.45
+
+      transactions.push({
+        fromAccountId: isIncoming ? null : carolChecking.id,
+        toAccountId: isIncoming ? carolChecking.id : null,
+        amountCents: amount,
+        type: isIncoming ? 'CREDIT' : 'DEBIT',
+        status: 'COMPLETED',
+        memo,
+        createdAt: daysAgo(day),
+      })
+    }
+  }
+
+  // Internal transfers for Carol
+  for (let day = 75; day >= 10; day -= 20) {
+    const amount = randomInt(50000, 500000)
+    transactions.push({
+      fromAccountId: carolChecking.id,
+      toAccountId: carolSavings.id,
+      amountCents: amount,
+      type: 'DEBIT',
+      status: 'COMPLETED',
+      memo: 'Transfer to savings',
+      createdAt: daysAgo(day),
+    })
+  }
+
+  // Generate historical transactions for Dave
+  for (let day = 90; day >= 5; day--) {
+    const txCount = randomInt(1, 3)
+    for (let i = 0; i < txCount; i++) {
+      const amount = randomInt(5000, 350000)
+      const memo = memos[randomInt(0, memos.length - 1)]
+      const isIncoming = Math.random() > 0.5
+
+      transactions.push({
+        fromAccountId: isIncoming ? null : daveChecking.id,
+        toAccountId: isIncoming ? daveChecking.id : null,
+        amountCents: amount,
+        type: isIncoming ? 'CREDIT' : 'DEBIT',
+        status: 'COMPLETED',
+        memo,
+        createdAt: daysAgo(day),
+      })
+    }
+  }
+
   // A few PENDING transactions
   transactions.push(
     {
@@ -361,8 +487,10 @@ async function main() {
   console.log(`Created ${transactions.length} transactions`)
   console.log('\nSeed complete!')
   console.log('\nDemo credentials:')
-  console.log('  alice@acmecorp.com / demo1234')
-  console.log('  bob@techstart.io / demo1234')
+  console.log('  alice@acmecorp.com / demo1234   (Marqeta)')
+  console.log('  bob@techstart.io / demo1234     (Marqeta)')
+  console.log('  carol@techflow.io / demo1234    (Nymbus)')
+  console.log('  dave@vertexlabs.io / demo1234   (Nymbus)')
 }
 
 main()

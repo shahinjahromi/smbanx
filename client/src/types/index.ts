@@ -12,6 +12,8 @@ export interface Account {
   balanceCents: number
   currency: string
   moovPaymentMethodId: string | null
+  nymbusAccountId?: string | null
+  ledgerBalanceCents?: number   // runtime-only, populated when Nymbus overlay active
   createdAt: string
   updatedAt: string
 }
@@ -48,7 +50,7 @@ export interface Transaction {
   memo: string | null
   stripePaymentIntentId: string | null
   moovTransferId: string | null
-  provider: 'internal' | 'stripe' | 'moov' | 'card' | null
+  provider: 'internal' | 'stripe' | 'moov' | 'nymbus' | 'card' | null
   cardId?: string | null
   merchantName?: string | null
   createdAt: string
@@ -82,7 +84,7 @@ export interface TransferFormData {
   toAccountId: string
   amountCents: number
   memo?: string
-  provider?: 'internal' | 'stripe' | 'moov'
+  provider?: 'internal' | 'stripe' | 'moov' | 'nymbus'
   moovRailType?: MoovRailType
 }
 

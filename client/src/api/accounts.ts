@@ -15,3 +15,8 @@ export async function fetchMoovDestinations(): Promise<Account[]> {
   const { data } = await api.get<{ accounts: Account[] }>('/accounts/moov-destinations')
   return data.accounts
 }
+
+export async function fetchNymbusDestinations(): Promise<Account[]> {
+  const { data } = await api.get<{ destinations: Account[] }>('/accounts/nymbus-destinations')
+  return data.destinations
+}

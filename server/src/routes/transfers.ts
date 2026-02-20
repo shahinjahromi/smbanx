@@ -13,7 +13,7 @@ const transferSchema = z.object({
   toAccountId: z.string().min(1),
   amountCents: z.number().int().positive(),
   memo: z.string().max(500).optional(),
-  provider: z.enum(['internal', 'stripe', 'moov']).default('stripe'),
+  provider: z.enum(['internal', 'stripe', 'moov', 'nymbus']).default('stripe'),
   moovRailType: z.enum(['ach-standard', 'ach-same-day', 'rtp', 'fund']).optional(),
   paymentMethodId: z.string().optional(),
 })

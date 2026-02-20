@@ -24,7 +24,7 @@ export function TransferPage() {
     toAccountId: string
     amountCents: number
     memo?: string
-    provider: 'internal' | 'stripe' | 'moov'
+    provider: 'internal' | 'stripe' | 'moov' | 'nymbus'
     moovRailType?: MoovRailType
     fromAccountName?: string
     toAccountName: string

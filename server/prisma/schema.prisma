@@ -39,6 +39,7 @@ model User {
   businessName String?
 
   marqetaUserToken String?  @unique
+  nymbusCustomerId String?  @unique   // Nymbus customer ID for Carol/Dave
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -56,6 +57,7 @@ model Account {
   balanceCents  Int         @default(0)
   currency              String      @default("USD")
   moovPaymentMethodId   String?     // Moov payment method ID for this account
+  nymbusAccountId       String?     @unique // Nymbus account ID for Carol/Dave
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -76,7 +78,8 @@ model Transaction {
   memo                  String?
   stripePaymentIntentId String?
   moovTransferId        String?     // Moov transfer ID (populated when provider = 'moov')
-  provider                String?     // 'stripe' | 'moov' | 'card' — defaults to 'stripe'
+  nymbusTransferId      String?     // Nymbus transfer ID (populated when provider = 'nymbus')
+  provider                String?     // 'stripe' | 'moov' | 'nymbus' | 'card' — defaults to 'stripe'
   cardId                  String?
   merchantName            String?
   marqetaTransactionToken String?
