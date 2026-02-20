@@ -9,11 +9,34 @@ import {
 
 type CardTxType = 'auth' | 'purchase' | 'credit'
 
-// Sanitise merchant name into a short MID string safe for Marqeta
+/** Sanitise merchant name into a short MID string safe for Marqeta */
 function toMid(merchantName: string) {
   return merchantName.toLowerCase().replace(/[^a-z0-9]/g, '_').slice(0, 40)
 }
 
+/**
+ * Simulates a card transaction against a user's Marqeta-backed card.
+ *
+ * Behaviour varies by `type`:
+ * - **`auth`** — Sends a Marqeta authorization (creates a PENDING hold on the GPA).
+ *   The local transaction record is created in `PENDING` state.
+ * - **`purchase`** — Sends a Marqeta authorization followed immediately by a
+ *   clearing (settlement). The local transaction is created in `COMPLETED` state
+ *   and `balanceCents` is decremented.
+ * - **`credit`** — Issues a GPA funding order (refund). The local transaction is
+ *   created as a `CREDIT` in `COMPLETED` state and `balanceCents` is incremented.
+ *
+ * @param cardId - The local card ID (DB primary key).
+ * @param userId - The requesting user's ID (ownership check).
+ * @param type - Transaction simulation type: `'auth'`, `'purchase'`, or `'credit'`.
+ * @param amountCents - Transaction amount in cents.
+ * @param merchantName - Merchant display name (used to derive the MID).
+ * @param memo - Optional memo / description.
+ * @returns The created transaction record.
+ * @throws {NotFoundError} If the card does not exist.
+ * @throws {ForbiddenError} If the card belongs to a different user.
+ * @throws {AppError} With code `'CARD_FROZEN'` if the card is currently frozen.
+ */
 export async function createCardTransaction(
   cardId: string,
   userId: string,
@@ -115,6 +138,20 @@ export async function createCardTransaction(
   return tx
 }
 
+/**
+ * Posts (settles) a pending card authorization.
+ *
+ * Triggers a Marqeta clearing simulation, then marks the local transaction
+ * as `COMPLETED` and decrements the account balance.
+ *
+ * @param transactionId - The local transaction ID to post.
+ * @param userId - The requesting user's ID (ownership check).
+ * @returns The updated transaction record in `COMPLETED` state.
+ * @throws {NotFoundError} If the transaction does not exist.
+ * @throws {AppError} With code `'INVALID_PROVIDER'` if the transaction is not a card transaction.
+ * @throws {AppError} With code `'INVALID_STATE'` if the transaction is not in `PENDING` state.
+ * @throws {ForbiddenError} If the transaction's account belongs to a different user.
+ */
 export async function postCardTransaction(transactionId: string, userId: string) {
   const tx = await prisma.transaction.findUnique({
     where: { id: transactionId },
@@ -148,6 +185,20 @@ export async function postCardTransaction(transactionId: string, userId: string)
   return updatedTx
 }
 
+/**
+ * Voids (reverses) a pending card authorization.
+ *
+ * Triggers a Marqeta reversal simulation, then marks the local transaction
+ * as `CANCELLED`. No balance change is made since the funds were never settled.
+ *
+ * @param transactionId - The local transaction ID to void.
+ * @param userId - The requesting user's ID (ownership check).
+ * @returns The updated transaction record in `CANCELLED` state.
+ * @throws {NotFoundError} If the transaction does not exist.
+ * @throws {AppError} With code `'INVALID_PROVIDER'` if the transaction is not a card transaction.
+ * @throws {AppError} With code `'INVALID_STATE'` if the transaction is not in `PENDING` state.
+ * @throws {ForbiddenError} If the transaction's account belongs to a different user.
+ */
 export async function cancelCardTransaction(transactionId: string, userId: string) {
   const tx = await prisma.transaction.findUnique({
     where: { id: transactionId },
@@ -173,6 +224,16 @@ export async function cancelCardTransaction(transactionId: string, userId: strin
   })
 }
 
+/**
+ * Returns all pending card authorizations for the given user.
+ *
+ * Only transactions with `provider = 'card'` and `status = 'PENDING'` that
+ * credit an account owned by the user are returned.
+ *
+ * @param userId - The authenticated user's ID.
+ * @returns Array of pending authorization transaction records with nested
+ *   `toAccount` and `card` summaries, ordered newest first.
+ */
 export async function getPendingAuths(userId: string) {
   return prisma.transaction.findMany({
     where: {

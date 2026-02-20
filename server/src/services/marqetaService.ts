@@ -9,6 +9,17 @@ const FUNDING_SOURCE_TOKEN = env.MARQETA_FUNDING_SOURCE_TOKEN ?? 'sandbox_progra
 
 const authHeader = 'Basic ' + Buffer.from(`${APP_TOKEN}:${ADMIN_TOKEN}`).toString('base64')
 
+/**
+ * Internal HTTP helper for the Marqeta v3 REST API.
+ * Parses the response as JSON and throws an {@link AppError} on non-2xx status.
+ *
+ * @template T - Expected shape of the successful response body.
+ * @param method - HTTP method (e.g. `'GET'`, `'POST'`).
+ * @param path - API path relative to `MARQETA_BASE_URL` (e.g. `'/users'`).
+ * @param body - Optional request body (serialised to JSON).
+ * @returns Parsed response body cast to `T`.
+ * @throws {AppError} On non-2xx HTTP status or non-JSON response.
+ */
 async function mq<T>(method: string, path: string, body?: object): Promise<T> {
   const res = await fetch(`${BASE_URL}${path}`, {
     method,
@@ -42,6 +53,7 @@ async function mq<T>(method: string, path: string, body?: object): Promise<T> {
 
 // ─── Users ───────────────────────────────────────────────────────────────────
 
+/** Shape of a Marqeta user object. */
 export interface MarqetaUser {
   token: string
   active: boolean
@@ -51,6 +63,17 @@ export interface MarqetaUser {
   status: string
 }
 
+/**
+ * Creates a new Marqeta cardholder user, or returns the existing one if the
+ * token is already in use (idempotent via 409 handling).
+ *
+ * @param token - Unique user token (used as the Marqeta user identifier).
+ * @param firstName - Cardholder first name.
+ * @param lastName - Cardholder last name.
+ * @param email - Cardholder email address.
+ * @returns The created or existing {@link MarqetaUser}.
+ * @throws {AppError} On unexpected Marqeta API errors.
+ */
 export async function createMarqetaUser(
   token: string,
   firstName: string,
@@ -76,6 +99,13 @@ export async function createMarqetaUser(
 
 // ─── GPA Funding ─────────────────────────────────────────────────────────────
 
+/**
+ * Credits a user's General Purpose Account (GPA) by the specified amount.
+ *
+ * @param userToken - The Marqeta user token to fund.
+ * @param amountCents - Amount to credit in cents (converted to dollars internally).
+ * @throws {AppError} If the Marqeta GPA order call fails.
+ */
 export async function fundGPA(userToken: string, amountCents: number): Promise<void> {
   const amount = amountCents / 100
   await mq('POST', '/gpaorders', {
@@ -88,11 +118,21 @@ export async function fundGPA(userToken: string, amountCents: number): Promise<v
 
 // ─── Balances ─────────────────────────────────────────────────────────────────
 
+/** Live GPA balance figures returned by Marqeta. */
 export interface MarqetaBalance {
+  /** Spendable (available) balance in cents. */
   availableCents: number
+  /** Posted (ledger) balance in cents. */
   ledgerCents: number
 }
 
+/**
+ * Fetches the live GPA balance for a Marqeta user.
+ *
+ * @param userToken - The Marqeta user token.
+ * @returns `{ availableCents, ledgerCents }` derived from the GPA balances.
+ * @throws {AppError} If the Marqeta balance call fails.
+ */
 export async function getGPABalance(userToken: string): Promise<MarqetaBalance> {
   const resp = await mq<{ gpa: { available_balance: number; ledger_balance: number } }>(
     'GET',
@@ -106,14 +146,24 @@ export async function getGPABalance(userToken: string): Promise<MarqetaBalance> 
 
 // ─── Cards ───────────────────────────────────────────────────────────────────
 
+/** Shape of a Marqeta card object. */
 export interface MarqetaCard {
   token: string
   user_token: string
   last_four: string
-  expiration: string   // MMYY format e.g. "0328"
+  /** Card expiration in `MMYY` format, e.g. `'0328'`. */
+  expiration: string
   state: string
 }
 
+/**
+ * Issues a new virtual card for a Marqeta user using the configured
+ * card product.
+ *
+ * @param userToken - The Marqeta user token to issue the card for.
+ * @returns The newly created {@link MarqetaCard}.
+ * @throws {AppError} If the Marqeta card creation call fails.
+ */
 export async function createMarqetaCard(userToken: string): Promise<MarqetaCard> {
   return mq<MarqetaCard>('POST', '/cards?show_pan=false&show_cvv_number=false', {
     user_token: userToken,
@@ -123,6 +173,7 @@ export async function createMarqetaCard(userToken: string): Promise<MarqetaCard>
 
 // ─── Simulation ──────────────────────────────────────────────────────────────
 
+/** Shape of a Marqeta transaction simulation response. */
 export interface MarqetaTransaction {
   token: string
   type: string
@@ -133,6 +184,15 @@ export interface MarqetaTransaction {
   user_token: string
 }
 
+/**
+ * Simulates a card authorization (pending hold) via Marqeta.
+ *
+ * @param cardToken - The Marqeta card token to authorize against.
+ * @param amountCents - Authorization amount in cents.
+ * @param mid - Merchant ID string (alphanumeric/underscore, max 40 chars).
+ * @returns The simulated {@link MarqetaTransaction} in `PENDING` state.
+ * @throws {AppError} If the Marqeta simulation call fails.
+ */
 export async function simulateAuthorization(
   cardToken: string,
   amountCents: number,
@@ -146,6 +206,14 @@ export async function simulateAuthorization(
   return resp.transaction
 }
 
+/**
+ * Simulates clearing (settlement) of a previously authorized transaction.
+ *
+ * @param originalTransactionToken - Token of the authorization transaction to clear.
+ * @param amountCents - Clearing amount in cents (may be less than or equal to auth amount).
+ * @returns The simulated {@link MarqetaTransaction} in `CLEARED` state.
+ * @throws {AppError} If the Marqeta simulation call fails.
+ */
 export async function simulateClearing(
   originalTransactionToken: string,
   amountCents: number,
@@ -157,6 +225,14 @@ export async function simulateClearing(
   return resp.transaction
 }
 
+/**
+ * Simulates reversal (void) of a previously authorized transaction.
+ *
+ * @param originalTransactionToken - Token of the authorization transaction to reverse.
+ * @param amountCents - Reversal amount in cents.
+ * @returns The simulated {@link MarqetaTransaction} reflecting the reversal.
+ * @throws {AppError} If the Marqeta simulation call fails.
+ */
 export async function simulateReversal(
   originalTransactionToken: string,
   amountCents: number,
@@ -168,6 +244,16 @@ export async function simulateReversal(
   return resp.transaction
 }
 
+/**
+ * Simulates a financial (direct debit) transaction against a card's GPA,
+ * typically used to drain a balance for testing purposes.
+ *
+ * @param cardToken - The Marqeta card token to debit.
+ * @param amountCents - Amount to debit in cents.
+ * @param mid - Merchant ID string (alphanumeric/underscore, max 40 chars).
+ * @returns The simulated {@link MarqetaTransaction}.
+ * @throws {AppError} If the Marqeta simulation call fails.
+ */
 export async function simulateFinancial(
   cardToken: string,
   amountCents: number,

@@ -2,6 +2,21 @@ import { Request, Response, NextFunction } from 'express'
 import { AppError } from '../utils/errors'
 import { ZodError } from 'zod'
 
+/**
+ * Global Express error-handling middleware.
+ *
+ * Must be registered **last** in the middleware stack. Handles three
+ * categories of errors and maps them to structured JSON responses:
+ *
+ * - `ZodError` → `422 Unprocessable Entity` with per-field detail.
+ * - `AppError` (and subclasses) → the error's own `statusCode` + `code`.
+ * - Anything else → `500 Internal Server Error` (message hidden from client).
+ *
+ * @param err - The error passed to `next(err)`.
+ * @param _req - Express request object (unused).
+ * @param res - Express response object used to send the error payload.
+ * @param _next - Express next function (unused; required by Express signature).
+ */
 export function errorHandler(
   err: Error,
   _req: Request,

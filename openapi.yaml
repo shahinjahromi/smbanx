@@ -1,0 +1,1109 @@
+openapi: 3.1.0
+info:
+  title: Mike's Bank API
+  version: 1.0.0
+  description: |
+    REST API for the Mike's Bank small-business banking MVP.
+
+    **Authentication**: All endpoints except `/api/auth/*` and `/health` require a
+    short-lived JWT access token in the `Authorization: Bearer <token>` header.
+    Obtain a token via `POST /api/auth/login`. Refresh tokens are stored in an
+    `HttpOnly` cookie and rotated on every use.
+
+    **Providers**: The platform supports four payment providers:
+    - `internal` — instant balance transfer between the same user's own accounts
+    - `stripe` — card-funding via Stripe PaymentIntents
+    - `moov` — ACH / RTP bank transfers via Moov
+    - `nymbus` — Core banking transfers via Nymbus BaaS (Carol & Dave accounts)
+
+    **Demo accounts**:
+    | Email | Password | Provider |
+    |---|---|---|
+    | alice@acmecorp.com | demo1234 | Marqeta |
+    | bob@techstart.io | demo1234 | Marqeta |
+    | carol@techflow.io | demo1234 | Nymbus |
+    | dave@vertexlabs.io | demo1234 | Nymbus |
+
+servers:
+  - url: http://localhost:4000/api
+    description: Local development server
+  - url: https://smbanx.example.com/api
+    description: Production (replace with real URL)
+
+tags:
+  - name: Auth
+    description: Login, token refresh, and logout
+  - name: Accounts
+    description: Account balances and transfer destinations
+  - name: Transactions
+    description: Transaction history and details
+  - name: Transfers
+    description: Initiate, confirm, and cancel transfers
+  - name: Cards
+    description: Card management and lock/unlock
+  - name: Simulator
+    description: Card transaction simulation (dev / demo use)
+  - name: Webhooks
+    description: Inbound webhooks from Stripe and Moov
+  - name: Health
+    description: Service health check
+
+paths:
+  # ─── Health ──────────────────────────────────────────────────────────────
+  /health:
+    get:
+      tags: [Health]
+      summary: Health check
+      description: Returns server status and current timestamp. No authentication required.
+      operationId: healthCheck
+      responses:
+        '200':
+          description: Server is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ok
+                  timestamp:
+                    type: string
+                    format: date-time
+
+  # ─── Auth ─────────────────────────────────────────────────────────────────
+  /auth/login:
+    post:
+      tags: [Auth]
+      summary: Log in
+      description: |
+        Authenticates the user and returns a short-lived access token plus sets
+        an `HttpOnly` refresh-token cookie (valid 7 days).
+      operationId: login
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email:
+                  type: string
+                  format: email
+                  example: carol@techflow.io
+                password:
+                  type: string
+                  example: demo1234
+      responses:
+        '200':
+          description: Login successful
+          headers:
+            Set-Cookie:
+              description: HttpOnly refresh token cookie
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+
+  /auth/refresh:
+    post:
+      tags: [Auth]
+      summary: Refresh access token
+      description: |
+        Reads the `refreshToken` HttpOnly cookie, validates it, rotates it,
+        and returns a fresh access token. Implements refresh-token rotation —
+        the old token is immediately revoked.
+      operationId: refreshToken
+      responses:
+        '200':
+          description: Token refreshed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /auth/logout:
+    post:
+      tags: [Auth]
+      summary: Log out
+      description: Revokes the refresh token stored in the cookie and clears it.
+      operationId: logout
+      responses:
+        '200':
+          description: Logged out
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: Logged out successfully
+
+  # ─── Accounts ─────────────────────────────────────────────────────────────
+  /accounts:
+    get:
+      tags: [Accounts]
+      summary: List accounts
+      description: |
+        Returns all accounts belonging to the authenticated user.
+
+        Live balance overlays are applied where available:
+        - **Marqeta users** (Alice/Bob): CHECKING balance is replaced with the live GPA balance.
+        - **Nymbus users** (Carol/Dave): each account balance is replaced with the Nymbus
+          available balance; `ledgerBalanceCents` is appended.
+
+        Falls back to the DB-stored balance if the external call fails.
+      operationId: listAccounts
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Account list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  accounts:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Account'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /accounts/{id}:
+    get:
+      tags: [Accounts]
+      summary: Get account by ID
+      operationId: getAccount
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          description: Account details
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  account:
+                    $ref: '#/components/schemas/Account'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /accounts/moov-destinations:
+    get:
+      tags: [Accounts]
+      summary: List Moov transfer destinations
+      description: Returns accounts owned by **other** users that have a Moov payment method,
+        making them valid recipients for Moov transfers.
+      operationId: listMoovDestinations
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Moov-enabled destination accounts
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  accounts:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/AccountSummary'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /accounts/nymbus-destinations:
+    get:
+      tags: [Accounts]
+      summary: List Nymbus transfer destinations
+      description: Returns accounts owned by **other** users that have a Nymbus account ID,
+        making them valid recipients for Nymbus transfers.
+      operationId: listNymbusDestinations
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Nymbus-enabled destination accounts
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  destinations:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/AccountSummary'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  # ─── Transactions ──────────────────────────────────────────────────────────
+  /transactions:
+    get:
+      tags: [Transactions]
+      summary: List transactions
+      description: |
+        Returns a paginated list of transactions where the authenticated user
+        owns the source or destination account. Supports filtering by type,
+        status, date range, account, card, and full-text search.
+      operationId: listTransactions
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+        - name: search
+          in: query
+          description: Full-text search against memo and merchant name
+          schema:
+            type: string
+        - name: type
+          in: query
+          schema:
+            $ref: '#/components/schemas/TransactionType'
+        - name: status
+          in: query
+          schema:
+            $ref: '#/components/schemas/TransactionStatus'
+        - name: from
+          in: query
+          description: ISO-8601 start date (inclusive)
+          schema:
+            type: string
+            format: date-time
+        - name: to
+          in: query
+          description: ISO-8601 end date (inclusive)
+          schema:
+            type: string
+            format: date-time
+        - name: accountId
+          in: query
+          description: Filter to a specific account (from or to)
+          schema:
+            type: string
+        - name: cardId
+          in: query
+          description: Filter to a specific card
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Paginated transaction list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  transactions:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Transaction'
+                  pagination:
+                    $ref: '#/components/schemas/Pagination'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /transactions/{id}:
+    get:
+      tags: [Transactions]
+      summary: Get transaction by ID
+      operationId: getTransaction
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          description: Transaction details
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  transaction:
+                    $ref: '#/components/schemas/Transaction'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # ─── Transfers ─────────────────────────────────────────────────────────────
+  /transfers:
+    post:
+      tags: [Transfers]
+      summary: Initiate a transfer
+      description: |
+        Creates a PENDING transfer via the selected provider.
+
+        - `internal`: instant, between the user's own accounts, no external call.
+        - `stripe`: creates a Stripe PaymentIntent; returns `clientSecret` for
+          client-side card confirmation (or `paymentMethodId` for server-side).
+        - `moov`: submits an ACH/RTP transfer via Moov; returns `feeCents` if available.
+        - `nymbus`: calls the Nymbus Core API; source and destination must both have
+          `nymbusAccountId` and source user must have `nymbusCustomerId`.
+      operationId: initiateTransfer
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TransferRequest'
+      responses:
+        '201':
+          description: Transfer initiated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TransferResult'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+  /transfers/{id}/confirm:
+    post:
+      tags: [Transfers]
+      summary: Confirm a pending transfer
+      description: |
+        Completes the transfer and updates account balances. Must be called
+        after `POST /transfers` while the transaction is in `PENDING` state.
+      operationId: confirmTransfer
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          description: Transfer confirmed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  transaction:
+                    $ref: '#/components/schemas/Transaction'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /transfers/{id}/cancel:
+    post:
+      tags: [Transfers]
+      summary: Cancel a pending transfer
+      description: Cancels a PENDING transfer and revokes the associated external payment where possible.
+      operationId: cancelTransfer
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          description: Transfer cancelled
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  transaction:
+                    $ref: '#/components/schemas/Transaction'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # ─── Cards ─────────────────────────────────────────────────────────────────
+  /cards:
+    get:
+      tags: [Cards]
+      summary: List cards
+      description: Returns all cards belonging to the authenticated user with account details.
+      operationId: listCards
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Card list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Card'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /cards/{id}:
+    get:
+      tags: [Cards]
+      summary: Get card by ID
+      operationId: getCard
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          description: Card details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Card'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /cards/{id}/status:
+    patch:
+      tags: [Cards]
+      summary: Lock or unlock a card
+      description: Sets the card status to `ACTIVE` (unlocked) or `FROZEN` (locked).
+      operationId: updateCardStatus
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status]
+              properties:
+                status:
+                  $ref: '#/components/schemas/CardStatus'
+      responses:
+        '200':
+          description: Card status updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  card:
+                    $ref: '#/components/schemas/Card'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # ─── Simulator ─────────────────────────────────────────────────────────────
+  /simulator/card-transaction:
+    post:
+      tags: [Simulator]
+      summary: Simulate a card transaction
+      description: |
+        Simulates a card transaction against a Marqeta-backed card for demo purposes.
+
+        | Type | Behaviour |
+        |---|---|
+        | `auth` | Creates a PENDING authorization hold on the GPA |
+        | `purchase` | Auth + immediate clearing (COMPLETED, balance decremented) |
+        | `credit` | GPA funding order (COMPLETED, balance incremented) |
+      operationId: simulateCardTransaction
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [cardId, type, amountCents, merchantName]
+              properties:
+                cardId:
+                  type: string
+                  description: Local card ID (DB primary key)
+                type:
+                  type: string
+                  enum: [auth, purchase, credit]
+                amountCents:
+                  type: integer
+                  minimum: 1
+                  description: Amount in cents
+                merchantName:
+                  type: string
+                  maxLength: 200
+                memo:
+                  type: string
+                  maxLength: 500
+      responses:
+        '201':
+          description: Transaction created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  transaction:
+                    $ref: '#/components/schemas/Transaction'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /simulator/card-transaction/{id}/post:
+    post:
+      tags: [Simulator]
+      summary: Post (settle) a pending card authorization
+      description: Clears the pending authorization via Marqeta and marks the transaction COMPLETED.
+      operationId: postCardTransaction
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          description: Transaction posted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  transaction:
+                    $ref: '#/components/schemas/Transaction'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /simulator/card-transaction/{id}/void:
+    post:
+      tags: [Simulator]
+      summary: Void a pending card authorization
+      description: Reverses the pending authorization via Marqeta and marks the transaction CANCELLED.
+      operationId: voidCardTransaction
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          description: Transaction voided
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  transaction:
+                    $ref: '#/components/schemas/Transaction'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /simulator/pending-auths:
+    get:
+      tags: [Simulator]
+      summary: List pending card authorizations
+      description: Returns all pending card authorization transactions for the authenticated user.
+      operationId: listPendingAuths
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Pending authorizations
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Transaction'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  # ─── Webhooks ──────────────────────────────────────────────────────────────
+  /webhooks/stripe:
+    post:
+      tags: [Webhooks]
+      summary: Stripe webhook receiver
+      description: |
+        Receives and verifies Stripe webhook events. Handles:
+        - `payment_intent.succeeded` → marks transaction COMPLETED, updates balances
+        - `payment_intent.payment_failed` → marks transaction FAILED
+
+        **Note**: The request body must be the raw JSON bytes (not parsed).
+        The `Stripe-Signature` header is required for HMAC verification.
+      operationId: stripeWebhook
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: Raw Stripe event payload
+      parameters:
+        - name: Stripe-Signature
+          in: header
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Event received
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  received:
+                    type: boolean
+                    example: true
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  /webhooks/moov:
+    post:
+      tags: [Webhooks]
+      summary: Moov webhook receiver
+      description: |
+        Receives and verifies Moov webhook events. Handles:
+        - `transfer.completed` → marks transaction COMPLETED, updates balances
+        - `transfer.failed` → marks transaction FAILED
+
+        Signature verification uses HMAC-SHA-512 with headers
+        `x-signature`, `x-timestamp`, `x-nonce`, and `x-webhook-id`.
+      operationId: moovWebhook
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: Raw Moov event payload
+      responses:
+        '200':
+          description: Event received
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  received:
+                    type: boolean
+                    example: true
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+# ─── Components ───────────────────────────────────────────────────────────────
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  parameters:
+    Id:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+      description: Resource primary key (cuid)
+
+  responses:
+    BadRequest:
+      description: Bad request
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Unauthorized:
+      description: Missing or invalid authentication
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error: Access token expired or invalid
+            code: UNAUTHORIZED
+    Forbidden:
+      description: Authenticated but access denied
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error: Access denied
+            code: FORBIDDEN
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error: Account not found
+            code: NOT_FOUND
+    ValidationError:
+      description: Request body failed schema validation
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ValidationError'
+    RateLimited:
+      description: Too many requests
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+  schemas:
+    # ── Enums ──────────────────────────────────────────────────────────────
+    AccountType:
+      type: string
+      enum: [CHECKING, SAVINGS, BUSINESS]
+
+    CardStatus:
+      type: string
+      enum: [ACTIVE, FROZEN]
+
+    TransactionType:
+      type: string
+      enum: [DEBIT, CREDIT]
+
+    TransactionStatus:
+      type: string
+      enum: [PENDING, COMPLETED, FAILED, CANCELLED]
+
+    Provider:
+      type: string
+      enum: [internal, stripe, moov, nymbus, card]
+
+    MoovRailType:
+      type: string
+      enum: [ach-standard, ach-same-day, rtp, fund]
+
+    # ── Shared ─────────────────────────────────────────────────────────────
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+        code:
+          type: string
+      required: [error]
+
+    ValidationError:
+      type: object
+      properties:
+        error:
+          type: string
+          example: Validation failed
+        code:
+          type: string
+          example: VALIDATION_ERROR
+        details:
+          type: array
+          items:
+            type: object
+            properties:
+              path:
+                type: string
+              message:
+                type: string
+
+    Pagination:
+      type: object
+      properties:
+        page:
+          type: integer
+        limit:
+          type: integer
+        total:
+          type: integer
+        totalPages:
+          type: integer
+
+    # ── Auth ───────────────────────────────────────────────────────────────
+    LoginResponse:
+      type: object
+      properties:
+        accessToken:
+          type: string
+          description: Short-lived JWT (15 min)
+        expiresAt:
+          type: string
+          format: date-time
+          description: Refresh token expiry (7 days)
+
+    # ── Account ────────────────────────────────────────────────────────────
+    Account:
+      type: object
+      properties:
+        id:
+          type: string
+        userId:
+          type: string
+        accountNumber:
+          type: string
+          example: 5001-0001-0001
+        accountType:
+          $ref: '#/components/schemas/AccountType'
+        name:
+          type: string
+          example: Business Checking
+        balanceCents:
+          type: integer
+          description: Available balance in cents (live overlay applied where applicable)
+        ledgerBalanceCents:
+          type: integer
+          description: Current/ledger balance in cents (Nymbus accounts only; runtime field)
+        currency:
+          type: string
+          example: USD
+        moovPaymentMethodId:
+          type: string
+          nullable: true
+        nymbusAccountId:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    AccountSummary:
+      type: object
+      description: Minimal account shape returned in destination lists
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        accountNumber:
+          type: string
+        accountType:
+          $ref: '#/components/schemas/AccountType'
+        moovPaymentMethodId:
+          type: string
+          nullable: true
+        nymbusAccountId:
+          type: string
+          nullable: true
+
+    # ── Card ───────────────────────────────────────────────────────────────
+    Card:
+      type: object
+      properties:
+        id:
+          type: string
+        accountId:
+          type: string
+        last4:
+          type: string
+          example: '4242'
+        expiryMonth:
+          type: integer
+          example: 12
+        expiryYear:
+          type: integer
+          example: 2027
+        status:
+          $ref: '#/components/schemas/CardStatus'
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        account:
+          type: object
+          properties:
+            id:
+              type: string
+            name:
+              type: string
+            accountNumber:
+              type: string
+            balanceCents:
+              type: integer
+
+    # ── Transaction ────────────────────────────────────────────────────────
+    TransactionAccount:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        accountNumber:
+          type: string
+
+    Transaction:
+      type: object
+      properties:
+        id:
+          type: string
+        fromAccountId:
+          type: string
+          nullable: true
+        toAccountId:
+          type: string
+          nullable: true
+        amountCents:
+          type: integer
+          description: Amount in cents
+        type:
+          $ref: '#/components/schemas/TransactionType'
+        status:
+          $ref: '#/components/schemas/TransactionStatus'
+        memo:
+          type: string
+          nullable: true
+        provider:
+          $ref: '#/components/schemas/Provider'
+          nullable: true
+        merchantName:
+          type: string
+          nullable: true
+        stripePaymentIntentId:
+          type: string
+          nullable: true
+        moovTransferId:
+          type: string
+          nullable: true
+        nymbusTransferId:
+          type: string
+          nullable: true
+        cardId:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        fromAccount:
+          $ref: '#/components/schemas/TransactionAccount'
+          nullable: true
+        toAccount:
+          $ref: '#/components/schemas/TransactionAccount'
+          nullable: true
+        card:
+          type: object
+          nullable: true
+          properties:
+            id:
+              type: string
+            last4:
+              type: string
+
+    # ── Transfer ───────────────────────────────────────────────────────────
+    TransferRequest:
+      type: object
+      required: [toAccountId, amountCents]
+      properties:
+        fromAccountId:
+          type: string
+          description: Source account ID. Optional for Stripe card-funding.
+        toAccountId:
+          type: string
+          description: Destination account ID.
+        amountCents:
+          type: integer
+          minimum: 1
+          description: Amount in cents.
+        memo:
+          type: string
+          maxLength: 500
+        provider:
+          $ref: '#/components/schemas/Provider'
+          default: stripe
+        moovRailType:
+          $ref: '#/components/schemas/MoovRailType'
+          description: Required when provider is `moov`.
+        paymentMethodId:
+          type: string
+          description: Stripe payment method ID for card-funding flows.
+
+    TransferResult:
+      type: object
+      properties:
+        transaction:
+          $ref: '#/components/schemas/Transaction'
+        paymentIntentId:
+          type: string
+          nullable: true
+          description: Stripe PaymentIntent ID or Moov/Nymbus transfer ID.
+        clientSecret:
+          type: string
+          nullable: true
+          description: Stripe client secret for client-side confirmation (Stripe only).
+        feeCents:
+          type: integer
+          description: Moov platform fee in cents (Moov transfers only, when available).

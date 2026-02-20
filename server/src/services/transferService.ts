@@ -11,6 +11,36 @@ import { NotFoundError, ForbiddenError, AppError, ValidationError } from '../uti
 type Provider = 'internal' | 'stripe' | 'moov' | 'nymbus'
 type MoovRailType = 'ach-standard' | 'ach-same-day' | 'rtp' | 'fund'
 
+/**
+ * Creates a new transfer and returns provider-specific payment details.
+ *
+ * Behaviour varies by `provider`:
+ * - **`internal`** — Direct balance transfer between the user's own accounts.
+ *   Returns a `PENDING` transaction; no external payment gateway involved.
+ * - **`stripe`** — Creates a Stripe PaymentIntent (unconfirmed). When `fromAccountId`
+ *   is omitted, funds a single account via card charge. Returns `clientSecret`
+ *   for client-side confirmation.
+ * - **`moov`** — Submits a Moov transfer on the selected rail (ACH, RTP, etc.).
+ *   Returns `feeCents` if the Moov platform fee is available.
+ * - **`nymbus`** — Calls the Nymbus Core API to initiate a bank transfer between
+ *   Nymbus-backed accounts. Requires both accounts to have `nymbusAccountId`
+ *   and the source user to have `nymbusCustomerId`.
+ *
+ * @param userId - The authenticated user's ID (used for ownership checks).
+ * @param fromAccountId - Source account ID. Optional only for Stripe card-funding.
+ * @param toAccountId - Destination account ID.
+ * @param amountCents - Transfer amount in cents (must be positive).
+ * @param memo - Optional transfer description.
+ * @param provider - Payment provider to use (default: `'stripe'`).
+ * @param moovRailType - Rail type for Moov transfers (default: `'ach-standard'`).
+ * @param paymentMethodId - Stripe payment method ID for card-funding flows.
+ * @returns `{ transaction, paymentIntentId, clientSecret, feeCents? }`.
+ * @throws {NotFoundError} If either account does not exist.
+ * @throws {ForbiddenError} If the user does not own the source account.
+ * @throws {ValidationError} If accounts are the same, required IDs are missing,
+ *   or accounts lack required provider credentials.
+ * @throws {AppError} With code `'INSUFFICIENT_FUNDS'` if the source balance is too low.
+ */
 export async function initiateTransfer(
   userId: string,
   fromAccountId: string | undefined,
@@ -175,6 +205,23 @@ export async function initiateTransfer(
   return { transaction: debitTx, paymentIntentId: pi.id, clientSecret: pi.client_secret }
 }
 
+/**
+ * Confirms a PENDING transfer, completing the payment and updating balances.
+ *
+ * Behaviour varies by provider:
+ * - **`internal`** — Atomically decrements source and increments destination balance.
+ * - **`nymbus`** — Marks COMPLETED and syncs DB balances (Nymbus side already settled).
+ * - **`moov`** — Checks Moov transfer status; completes optimistically if not failed.
+ * - **`stripe`** — Calls `confirmPaymentIntent`; adjusts balances on success.
+ *
+ * @param transactionId - The transaction's primary key.
+ * @param userId - The requesting user's ID (ownership check).
+ * @returns The updated transaction record in `COMPLETED` state.
+ * @throws {NotFoundError} If the transaction does not exist.
+ * @throws {ForbiddenError} If the user does not own the transaction.
+ * @throws {AppError} With code `'INVALID_STATE'` if the transaction is not PENDING.
+ * @throws {AppError} With code `'PAYMENT_FAILED'` if the external payment fails.
+ */
 export async function confirmTransfer(transactionId: string, userId: string) {
   const tx = await prisma.transaction.findUnique({
     where: { id: transactionId },
@@ -298,6 +345,20 @@ export async function confirmTransfer(transactionId: string, userId: string) {
   return updatedTx
 }
 
+/**
+ * Cancels a PENDING transfer and revokes the associated external payment where possible.
+ *
+ * - **Moov** transfers: attempts `cancelTransfer`; swallows errors if past cancellable state.
+ * - **Stripe** transfers: attempts `cancelPaymentIntent`; swallows errors if already cancelled.
+ * - **Internal / Nymbus** transfers: no external call needed.
+ *
+ * @param transactionId - The transaction's primary key.
+ * @param userId - The requesting user's ID (ownership check).
+ * @returns The updated transaction record in `CANCELLED` state.
+ * @throws {NotFoundError} If the transaction does not exist.
+ * @throws {ForbiddenError} If the user does not own the transaction.
+ * @throws {AppError} With code `'INVALID_STATE'` if the transaction is not PENDING.
+ */
 export async function cancelTransfer(transactionId: string, userId: string) {
   const tx = await prisma.transaction.findUnique({
     where: { id: transactionId },
@@ -331,6 +392,17 @@ export async function cancelTransfer(transactionId: string, userId: string) {
   })
 }
 
+/**
+ * Processes a Stripe webhook event for a PaymentIntent.
+ *
+ * Looks up the matching PENDING transaction by `piId`. On success,
+ * atomically marks it COMPLETED and adjusts both account balances.
+ * On failure, marks it FAILED. Silently returns if the transaction is
+ * not found or already processed.
+ *
+ * @param piId - Stripe PaymentIntent ID from the webhook event.
+ * @param eventType - The Stripe event type received.
+ */
 export async function handleStripeWebhook(
   piId: string,
   eventType: 'payment_intent.succeeded' | 'payment_intent.payment_failed',
@@ -360,6 +432,17 @@ export async function handleStripeWebhook(
   }
 }
 
+/**
+ * Processes a Moov webhook event for a transfer.
+ *
+ * Looks up the matching PENDING transaction by `moovTransferId`. On
+ * `'completed'`, atomically marks it COMPLETED and adjusts both account
+ * balances. On `'failed'`, marks it FAILED. Silently returns if the
+ * transaction is not found or already processed.
+ *
+ * @param moovTransferId - The Moov transfer ID from the webhook payload.
+ * @param eventType - The Moov event type (`'completed'` or `'failed'`).
+ */
 export async function handleMoovWebhook(
   moovTransferId: string,
   eventType: 'completed' | 'failed',
